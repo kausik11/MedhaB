@@ -4,7 +4,6 @@ const app = express();
 const morgan = require("morgan");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
-const serviceRoutes = require("./src/routes/serviceRoutes");
 const testimonialRoutes = require("./src/routes/testimonialRoutes");
 const blogRoutes = require("./src/routes/blogRoutes");
 const blogCategoryRoutes = require("./src/routes/blogCategoryRoutes");
@@ -37,8 +36,6 @@ const PreferenceEvent = require("./src/models/PreferenceEvent");
 app.set("trust proxy", true);
 
 const allowedOrigins = [
-  "https://savemedha.com",
-  "https://savemedha-admin.vercel.app",
   "http://localhost:5173"
 ];
 
@@ -158,7 +155,6 @@ app.use("/api", pricingRoutes);
 app.use("/api/users", userRoutes);
 
 // Protected admin resources
-app.use("/api/services", serviceRoutes);
 app.use("/api/testimonials", testimonialRoutes);
 app.use("/api/blogs", blogRoutes);
 app.use("/api/blog-categories", blogCategoryRoutes);
