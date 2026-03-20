@@ -68,6 +68,33 @@ const extraInfoSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const calculateDiscountPrice = (actualPrice, discountPercentage) => {
+  if (
+    typeof actualPrice !== "number" ||
+    Number.isNaN(actualPrice) ||
+    typeof discountPercentage !== "number" ||
+    Number.isNaN(discountPercentage)
+  ) {
+    return null;
+  }
+
+  return Number((actualPrice * (1 - discountPercentage / 100)).toFixed(2));
+};
+
+const calculateDiscountPercentage = (actualPrice, discountPrice) => {
+  if (
+    typeof actualPrice !== "number" ||
+    Number.isNaN(actualPrice) ||
+    typeof discountPrice !== "number" ||
+    Number.isNaN(discountPrice) ||
+    actualPrice <= 0
+  ) {
+    return 0;
+  }
+
+  return Number((((actualPrice - discountPrice) / actualPrice) * 100).toFixed(2));
+};
+
 const productSchema = new mongoose.Schema(
   {
     title: {
@@ -86,6 +113,12 @@ const productSchema = new mongoose.Schema(
       type: Number,
       required: true,
       min: 0,
+    },
+    discountPercentage: {
+      type: Number,
+      min: 0,
+      max: 100,
+      default: 0,
     },
     discountPrice: {
       type: Number,
@@ -226,6 +259,29 @@ productSchema.index({
   genericName: "text",
   tags: "text",
   metadata: "text",
+});
+
+productSchema.pre("validate", function syncDiscountFields(next) {
+  if (
+    typeof this.actualPrice === "number" &&
+    !Number.isNaN(this.actualPrice) &&
+    typeof this.discountPercentage === "number" &&
+    !Number.isNaN(this.discountPercentage)
+  ) {
+    this.discountPrice = calculateDiscountPrice(this.actualPrice, this.discountPercentage);
+    return next();
+  }
+
+  if (
+    typeof this.actualPrice === "number" &&
+    !Number.isNaN(this.actualPrice) &&
+    typeof this.discountPrice === "number" &&
+    !Number.isNaN(this.discountPrice)
+  ) {
+    this.discountPercentage = calculateDiscountPercentage(this.actualPrice, this.discountPrice);
+  }
+
+  next();
 });
 
 module.exports = mongoose.model("Product", productSchema);

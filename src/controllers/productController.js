@@ -101,6 +101,64 @@ const calculatePricePerCapsule = ({ actualPrice, discountPrice, quantity }) => {
   return Number((effectivePrice / quantity).toFixed(2));
 };
 
+const calculateDiscountPriceFromPercentage = ({ actualPrice, discountPercentage }) => {
+  if (
+    typeof actualPrice !== "number" ||
+    Number.isNaN(actualPrice) ||
+    typeof discountPercentage !== "number" ||
+    Number.isNaN(discountPercentage)
+  ) {
+    return undefined;
+  }
+
+  return Number((actualPrice * (1 - discountPercentage / 100)).toFixed(2));
+};
+
+const calculateDiscountPercentageFromPrice = ({ actualPrice, discountPrice }) => {
+  if (
+    typeof actualPrice !== "number" ||
+    Number.isNaN(actualPrice) ||
+    typeof discountPrice !== "number" ||
+    Number.isNaN(discountPrice)
+  ) {
+    return undefined;
+  }
+
+  if (actualPrice <= 0) {
+    return 0;
+  }
+
+  return Number((((actualPrice - discountPrice) / actualPrice) * 100).toFixed(2));
+};
+
+const syncDiscountFields = ({ actualPrice, discountPrice, discountPercentage }) => {
+  if (typeof actualPrice !== "number" || Number.isNaN(actualPrice)) {
+    return { actualPrice, discountPrice, discountPercentage };
+  }
+
+  if (typeof discountPercentage === "number" && !Number.isNaN(discountPercentage)) {
+    return {
+      actualPrice,
+      discountPercentage,
+      discountPrice: calculateDiscountPriceFromPercentage({ actualPrice, discountPercentage }),
+    };
+  }
+
+  if (typeof discountPrice === "number" && !Number.isNaN(discountPrice)) {
+    return {
+      actualPrice,
+      discountPrice,
+      discountPercentage: calculateDiscountPercentageFromPrice({ actualPrice, discountPrice }),
+    };
+  }
+
+  return {
+    actualPrice,
+    discountPercentage: 0,
+    discountPrice: calculateDiscountPriceFromPercentage({ actualPrice, discountPercentage: 0 }),
+  };
+};
+
 const uploadImage = async (file, folder) => {
   const base64Image = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
 
@@ -283,9 +341,16 @@ const hasExtraInfoInput = (body = {}) =>
   hasOwn(body, "form") ||
   hasOwn(body, "Form");
 
-const validatePriceFields = ({ actualPrice, discountPrice, inrPrice, otherPrice }) => {
+const validatePriceFields = ({
+  actualPrice,
+  discountPrice,
+  discountPercentage,
+  inrPrice,
+  otherPrice,
+}) => {
   const numericFields = [
     ["actualPrice", actualPrice],
+    ["discountPercentage", discountPercentage],
     ["discountPrice", discountPrice],
     ["inrPrice", inrPrice],
     ["otherPrice", otherPrice],
@@ -298,6 +363,14 @@ const validatePriceFields = ({ actualPrice, discountPrice, inrPrice, otherPrice 
     if (typeof value === "number" && value < 0) {
       return `${field} cannot be negative.`;
     }
+  }
+
+  if (
+    typeof discountPercentage === "number" &&
+    !Number.isNaN(discountPercentage) &&
+    discountPercentage > 100
+  ) {
+    return "discountPercentage cannot be greater than 100.";
   }
 
   if (
@@ -407,6 +480,20 @@ const buildProductPayload = async (body = {}, { existingProduct } = {}) => {
     payload.actualPrice = parseNumber(body.actualPrice ?? body.Actualprice);
   }
 
+  if (
+    hasOwn(body, "discountPercentage") ||
+    hasOwn(body, "discountpercentage") ||
+    hasOwn(body, "DiscountPercentage") ||
+    hasOwn(body, "discount Percentage")
+  ) {
+    payload.discountPercentage = parseNumber(
+      body.discountPercentage ??
+        body.discountpercentage ??
+        body.DiscountPercentage ??
+        body["discount Percentage"]
+    );
+  }
+
   if (hasOwn(body, "discountPrice") || hasOwn(body, "DiscountPrice")) {
     payload.discountPrice = parseNumber(body.discountPrice ?? body.DiscountPrice);
   }
@@ -469,6 +556,10 @@ const buildProductPayload = async (body = {}, { existingProduct } = {}) => {
 
   const priceError = validatePriceFields({
     actualPrice: payload.actualPrice ?? existingProduct?.actualPrice,
+    discountPercentage:
+      payload.discountPercentage !== undefined
+        ? payload.discountPercentage
+        : existingProduct?.discountPercentage,
     discountPrice:
       payload.discountPrice !== undefined ? payload.discountPrice : existingProduct?.discountPrice,
     inrPrice: payload.inrPrice ?? existingProduct?.inrPrice,
@@ -477,6 +568,27 @@ const buildProductPayload = async (body = {}, { existingProduct } = {}) => {
 
   if (priceError) {
     return { error: priceError };
+  }
+
+  const shouldSyncPricing =
+    !existingProduct ||
+    payload.actualPrice !== undefined ||
+    payload.discountPercentage !== undefined ||
+    payload.discountPrice !== undefined;
+
+  if (shouldSyncPricing) {
+    const syncedPricing = syncDiscountFields({
+      actualPrice: payload.actualPrice ?? existingProduct?.actualPrice,
+      discountPercentage:
+        payload.discountPercentage !== undefined
+          ? payload.discountPercentage
+          : existingProduct?.discountPercentage,
+      discountPrice:
+        payload.discountPrice !== undefined ? payload.discountPrice : existingProduct?.discountPrice,
+    });
+
+    payload.discountPercentage = syncedPricing.discountPercentage;
+    payload.discountPrice = syncedPricing.discountPrice;
   }
 
   if (payload.quantity !== undefined) {
