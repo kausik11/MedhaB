@@ -8,14 +8,8 @@ const testimonialRoutes = require("./src/routes/testimonialRoutes");
 const blogRoutes = require("./src/routes/blogRoutes");
 const blogCategoryRoutes = require("./src/routes/blogCategoryRoutes");
 const blogSubCategoryRoutes = require("./src/routes/blogSubCategoryRoutes");
-const ebookRoutes = require("./src/routes/ebookRoutes");
-const upcomingEventRoutes = require("./src/routes/upcomingEventRoutes");
-const ongoingEventRoutes = require("./src/routes/ongoingEventRoutes");
 const callbackRoutes = require("./src/routes/callbackRoutes");
 const newsletterRoutes = require("./src/routes/newsletterRoutes");
-const treatmentRoutes = require("./src/routes/treatmentRoutes");
-const treatmentSubCategoryRoutes = require("./src/routes/treatmentSubCategoryRoutes");
-const treatmentDetailRoutes = require("./src/routes/treatmentDetailRoutes");
 const addressRoutes = require("./src/routes/addressRoutes");
 const contactUsRoutes = require("./src/routes/contactUsRoutes");
 const jobRoutes = require("./src/routes/jobRoutes");
@@ -23,7 +17,6 @@ const applicationRoutes = require("./src/routes/applicationRoutes");
 const userRoutes = require("./src/routes/userRoutes");
 const countRoutes = require("./src/routes/countRoutes");
 const analyticsRoutes = require("./src/routes/analyticsRoutes");
-const treatmentFaqRoutes = require("./src/routes/treatmentFaqsRoute");
 const patientSuccessRoutes = require("./src/routes/patientSuccessRoutes");
 const productRoutes = require("./src/routes/productRoutes");
 const productCategoryRoutes = require("./src/routes/productCategoryRoutes");
@@ -162,32 +155,6 @@ app.use("/api/blog-subcategories", blogSubCategoryRoutes);
 
 // ****************************************************************** //
 
-
-
-// Ebooks: router handles auth for writes; reads remain public
-app.use("/api/ebooks", ebookRoutes);
-// Upcoming events: router handles auth for writes; reads remain public
-app.use("/api/upcoming-events", upcomingEventRoutes);
-// Ongoing events: router handles auth for writes; reads remain public
-app.use("/api/ongoing-events", ongoingEventRoutes);
-
-  
-
-// Treatments: router handles auth for writes; reads remain public
-// inused
-
-app.use("/api/treatments", treatmentRoutes);  
-
-// Treatment FAQs: public read, protected write inside router
-// inused
-app.use("/api/treatment-faqs", treatmentFaqRoutes);
-
-// Treatment sub-categories: router handles auth for writes; reads remain public
-// notused
-app.use("/api/treatment-sub-categories", treatmentSubCategoryRoutes);
-// Treatment details: router handles auth for writes; reads remain public
-// notused
-app.use("/api/treatment-details", treatmentDetailRoutes);
 
 
 // Addresses: router handles auth for writes; reads remain public
