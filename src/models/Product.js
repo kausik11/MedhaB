@@ -1,24 +1,5 @@
 const mongoose = require("mongoose");
 
-const DEFAULT_PRODUCT_CATEGORIES = [
-  "Bone Marrow Health",
-  "Immune Health",
-  "Kidney Health",
-  "Heart Health",
-  "Liver Health",
-  "Pancreas Health",
-  "Nerve Health",
-  "Platelet Health",
-  "Sperm Health",
-  "Skeleton Health",
-  "Spleen Health",
-  "Hair Root Health",
-  "Detox Health",
-  "Thyroid Health",
-  "Eye Health",
-  "Tumor Breaker",
-];
-
 const productImageSchema = new mongoose.Schema(
   {
     imageUrl: {
@@ -204,17 +185,16 @@ const productSchema = new mongoose.Schema(
     category: {
       type: [
         {
-          type: String,
-          trim: true,
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "ProductCategory",
         },
       ],
       default: [],
       validate: {
         validator: (value) =>
           Array.isArray(value) &&
-          value.every((item) => typeof item === "string" && item.trim().length > 0) &&
-          new Set(value.map((item) => item.trim().toLowerCase())).size === value.length,
-        message: "Categories must be non-empty and duplicate categories are not allowed.",
+          new Set(value.map((item) => `${item}`)).size === value.length,
+        message: "Duplicate categories are not allowed.",
       },
     },
     metadata: {
@@ -249,4 +229,3 @@ productSchema.index({
 });
 
 module.exports = mongoose.model("Product", productSchema);
-module.exports.DEFAULT_PRODUCT_CATEGORIES = DEFAULT_PRODUCT_CATEGORIES;

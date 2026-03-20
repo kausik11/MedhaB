@@ -27,6 +27,7 @@ const analyticsRoutes = require("./src/routes/analyticsRoutes");
 const treatmentFaqRoutes = require("./src/routes/treatmentFaqsRoute");
 const patientSuccessRoutes = require("./src/routes/patientSuccessRoutes");
 const productRoutes = require("./src/routes/productRoutes");
+const productCategoryRoutes = require("./src/routes/productCategoryRoutes");
 const authMiddleware = require("./src/middlewares/authMiddleware");
 const globalErrorHandler = require("./src/middlewares/globalErrorHandler");
 const PreferenceEvent = require("./src/models/PreferenceEvent");
@@ -207,6 +208,8 @@ app.use("/api/cities", countRoutes);
 app.use("/api/analytics", analyticsRoutes);
 // Patient success stories: public read, protected write
 app.use("/api/patient-success-stories", patientSuccessRoutes);
+// Product categories
+app.use("/api/product-categories", productCategoryRoutes);
 // Products: public read, protected write
 app.use("/api/products", productRoutes);
 // 404 handler for any unmatched routes

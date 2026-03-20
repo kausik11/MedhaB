@@ -1,4 +1,6 @@
+const mongoose = require("mongoose");
 const Product = require("../models/Product");
+const ProductCategory = require("../models/ProductCategory");
 const cloudinary = require("../config/cloudinary");
 const slugify = require("../utils/slugify");
 
@@ -124,6 +126,59 @@ const deleteImages = async (images = []) => {
       await cloudinary.uploader.destroy(image.imagePublicId);
     }
   }
+};
+
+const toCategoryLookupValue = (value) => `${value}`.trim();
+
+const resolveProductCategories = async (value) => {
+  if (value == null || value === "") {
+    return { categoryIds: [] };
+  }
+
+  await ProductCategory.seedDefaultsIfEmpty();
+  const items = normalizeStringArray(value);
+
+  if (!items.length) {
+    return { categoryIds: [] };
+  }
+
+  const uniqueIds = [];
+  const missingCategories = [];
+
+  for (const item of items) {
+    const lookupValue = toCategoryLookupValue(item);
+    let category = null;
+
+    if (mongoose.Types.ObjectId.isValid(lookupValue)) {
+      category = await ProductCategory.findById(lookupValue);
+    }
+
+    if (!category) {
+      category = await ProductCategory.findOne({
+        normalizedName: lookupValue.toLowerCase(),
+      });
+    }
+
+    if (!category) {
+      missingCategories.push(lookupValue);
+      continue;
+    }
+
+    const categoryId = `${category._id}`;
+    if (!uniqueIds.includes(categoryId)) {
+      uniqueIds.push(categoryId);
+    }
+  }
+
+  if (missingCategories.length) {
+    return {
+      error: `Invalid category: ${missingCategories.join(", ")}`,
+    };
+  }
+
+  return {
+    categoryIds: uniqueIds,
+  };
 };
 
 const buildManufacturingDetails = (body = {}) => {
@@ -365,7 +420,11 @@ const buildProductPayload = async (body = {}, { existingProduct } = {}) => {
   }
 
   if (hasOwn(body, "category")) {
-    payload.category = normalizeStringArray(body.category);
+    const { categoryIds, error } = await resolveProductCategories(body.category);
+    if (error) {
+      return { error };
+    }
+    payload.category = categoryIds;
   }
 
   if (hasOwn(body, "metadata") || hasOwn(body, "metaData")) {
@@ -490,7 +549,11 @@ const getProducts = async (req, res) => {
     }
 
     if (category) {
-      filter.category = { $in: normalizeStringArray(category) };
+      const { categoryIds, error } = await resolveProductCategories(category);
+      if (error) {
+        return res.status(400).json({ message: error });
+      }
+      filter.category = { $in: categoryIds };
     }
 
     if (tag) {
@@ -508,7 +571,9 @@ const getProducts = async (req, res) => {
       ];
     }
 
-    const products = await Product.find(filter).sort({ createdAt: -1 });
+    const products = await Product.find(filter)
+      .populate("category")
+      .sort({ createdAt: -1 });
     res.status(200).json(products);
   } catch (error) {
     console.error("Failed to fetch products:", error);
@@ -518,7 +583,7 @@ const getProducts = async (req, res) => {
 
 const getProductById = async (req, res) => {
   try {
-    const product = await Product.findById(req.params.id);
+    const product = await Product.findById(req.params.id).populate("category");
 
     if (!product) {
       return res.status(404).json({ message: "Product not found" });
@@ -533,7 +598,7 @@ const getProductById = async (req, res) => {
 
 const getProductBySlug = async (req, res) => {
   try {
-    const product = await Product.findOne({ slug: req.params.slug });
+    const product = await Product.findOne({ slug: req.params.slug }).populate("category");
 
     if (!product) {
       return res.status(404).json({ message: "Product not found" });
@@ -573,6 +638,7 @@ const createProduct = async (req, res) => {
     assignProductFields(product, {});
     await product.save();
 
+    await product.populate("category");
     res.status(201).json(product);
   } catch (error) {
     return handlePersistenceError(res, error, "Failed to create product");
@@ -616,6 +682,7 @@ const updateProduct = async (req, res) => {
     });
 
     await product.save();
+    await product.populate("category");
     res.status(200).json(product);
   } catch (error) {
     return handlePersistenceError(res, error, "Failed to update product");
