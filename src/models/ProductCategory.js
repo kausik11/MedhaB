@@ -44,12 +44,11 @@ const productCategorySchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-productCategorySchema.pre("validate", function setNormalizedName(next) {
+productCategorySchema.pre("validate", function setNormalizedName() {
   if (this.name) {
     this.name = normalizeCategoryName(this.name);
     this.normalizedName = this.name.toLowerCase();
   }
-  next();
 });
 
 productCategorySchema.statics.seedDefaultsIfEmpty = async function seedDefaultsIfEmpty() {

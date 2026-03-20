@@ -28,6 +28,7 @@ const treatmentFaqRoutes = require("./src/routes/treatmentFaqsRoute");
 const patientSuccessRoutes = require("./src/routes/patientSuccessRoutes");
 const productRoutes = require("./src/routes/productRoutes");
 const productCategoryRoutes = require("./src/routes/productCategoryRoutes");
+const pricingRoutes = require("./src/routes/pricingRoutes");
 const authMiddleware = require("./src/middlewares/authMiddleware");
 const globalErrorHandler = require("./src/middlewares/globalErrorHandler");
 const PreferenceEvent = require("./src/models/PreferenceEvent");
@@ -149,6 +150,9 @@ app.get("/favicon.ico", (_req, res) => res.status(204).end());
 app.get("/api/health", (_req, res) =>
   res.json({ ok: true, uptime: process.uptime(), ts: Date.now() })
 );
+
+app.use(pricingRoutes);
+app.use("/api", pricingRoutes);
 
 // Auth routes (login/register) remain public
 app.use("/api/users", userRoutes);

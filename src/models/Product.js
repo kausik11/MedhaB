@@ -261,7 +261,7 @@ productSchema.index({
   metadata: "text",
 });
 
-productSchema.pre("validate", function syncDiscountFields(next) {
+productSchema.pre("validate", function syncDiscountFields() {
   if (
     typeof this.actualPrice === "number" &&
     !Number.isNaN(this.actualPrice) &&
@@ -269,7 +269,7 @@ productSchema.pre("validate", function syncDiscountFields(next) {
     !Number.isNaN(this.discountPercentage)
   ) {
     this.discountPrice = calculateDiscountPrice(this.actualPrice, this.discountPercentage);
-    return next();
+    return;
   }
 
   if (
@@ -280,8 +280,6 @@ productSchema.pre("validate", function syncDiscountFields(next) {
   ) {
     this.discountPercentage = calculateDiscountPercentage(this.actualPrice, this.discountPrice);
   }
-
-  next();
 });
 
 module.exports = mongoose.model("Product", productSchema);
