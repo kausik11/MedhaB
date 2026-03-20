@@ -564,7 +564,7 @@ const createProduct = async (req, res) => {
       return res.status(400).json({ message: "You can upload at most 5 product images." });
     }
 
-    const images = await uploadImages(imageFiles, "savemedha/products");
+    const images = await uploadImages(imageFiles, "medhaBotanics/products");
     const product = new Product({
       ...payload,
       images,
@@ -601,7 +601,7 @@ const updateProduct = async (req, res) => {
 
     const shouldClearImages = parseBoolean(req.body.clearImages);
     if (imageFiles.length > 0) {
-      const uploadedImages = await uploadImages(imageFiles, "savemedha/products");
+      const uploadedImages = await uploadImages(imageFiles, "medhaBotanics/products");
       await deleteImages(product.images);
       product.images = uploadedImages;
     } else if (shouldClearImages === true) {
