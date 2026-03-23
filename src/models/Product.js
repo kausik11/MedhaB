@@ -95,6 +95,12 @@ const calculateDiscountPercentage = (actualPrice, discountPrice) => {
   return Number((((actualPrice - discountPrice) / actualPrice) * 100).toFixed(2));
 };
 
+const removeLegacyPriceFields = (_doc, ret) => {
+  delete ret.inrPrice;
+  delete ret.otherPrice;
+  return ret;
+};
+
 const productSchema = new mongoose.Schema(
   {
     title: {
@@ -130,16 +136,6 @@ const productSchema = new mongoose.Schema(
         },
         message: "Discount price cannot be greater than actual price.",
       },
-    },
-    inrPrice: {
-      type: Number,
-      min: 0,
-      default: null,
-    },
-    otherPrice: {
-      type: Number,
-      min: 0,
-      default: null,
     },
     pricePerCapsule: {
       type: Number,
@@ -280,6 +276,14 @@ productSchema.pre("validate", function syncDiscountFields() {
   ) {
     this.discountPercentage = calculateDiscountPercentage(this.actualPrice, this.discountPrice);
   }
+});
+
+productSchema.set("toJSON", {
+  transform: removeLegacyPriceFields,
+});
+
+productSchema.set("toObject", {
+  transform: removeLegacyPriceFields,
 });
 
 module.exports = mongoose.model("Product", productSchema);

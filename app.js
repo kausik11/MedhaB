@@ -141,8 +141,8 @@ app.get("/api/health", (_req, res) =>
   res.json({ ok: true, uptime: process.uptime(), ts: Date.now() })
 );
 
-app.use(pricingRoutes);
-app.use("/api", pricingRoutes);
+// app.use(pricingRoutes);
+// app.use("/api", pricingRoutes);
 
 // Auth routes (login/register) remain public
 app.use("/api/users", userRoutes);

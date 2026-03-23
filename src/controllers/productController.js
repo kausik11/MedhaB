@@ -345,15 +345,11 @@ const validatePriceFields = ({
   actualPrice,
   discountPrice,
   discountPercentage,
-  inrPrice,
-  otherPrice,
 }) => {
   const numericFields = [
     ["actualPrice", actualPrice],
     ["discountPercentage", discountPercentage],
     ["discountPrice", discountPrice],
-    ["inrPrice", inrPrice],
-    ["otherPrice", otherPrice],
   ];
 
   for (const [field, value] of numericFields) {
@@ -498,14 +494,6 @@ const buildProductPayload = async (body = {}, { existingProduct } = {}) => {
     payload.discountPrice = parseNumber(body.discountPrice ?? body.DiscountPrice);
   }
 
-  if (hasOwn(body, "inrPrice") || hasOwn(body, "inrprice")) {
-    payload.inrPrice = parseNumber(body.inrPrice ?? body.inrprice);
-  }
-
-  if (hasOwn(body, "otherPrice") || hasOwn(body, "otherprice")) {
-    payload.otherPrice = parseNumber(body.otherPrice ?? body.otherprice);
-  }
-
   if (hasOwn(body, "category")) {
     const { categoryIds, error } = await resolveProductCategories(body.category);
     if (error) {
@@ -562,8 +550,6 @@ const buildProductPayload = async (body = {}, { existingProduct } = {}) => {
         : existingProduct?.discountPercentage,
     discountPrice:
       payload.discountPrice !== undefined ? payload.discountPrice : existingProduct?.discountPrice,
-    inrPrice: payload.inrPrice ?? existingProduct?.inrPrice,
-    otherPrice: payload.otherPrice ?? existingProduct?.otherPrice,
   });
 
   if (priceError) {
