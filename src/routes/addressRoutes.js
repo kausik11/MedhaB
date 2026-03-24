@@ -10,13 +10,12 @@ const authMiddleware = require("../middlewares/authMiddleware");
 
 const router = express.Router();
 
-// Public
+// router.use(authMiddleware);
+
 router.get("/", getAddresses);
 router.get("/:id", getAddressById);
-
-// Protected
-router.post("/", authMiddleware, createAddress);
-router.put("/:id", authMiddleware, updateAddress);
-router.delete("/:id", authMiddleware, deleteAddress);
+router.post("/", createAddress);
+router.put("/:id", updateAddress);
+router.delete("/:id", deleteAddress);
 
 module.exports = router;

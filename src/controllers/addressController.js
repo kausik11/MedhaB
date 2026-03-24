@@ -1,114 +1,142 @@
 const Address = require("../models/Address");
 
-const getAddresses = async (_req, res) => {
+const REQUIRED_FIELDS = [
+  "fullName",
+  "mobileNumber",
+  "pincode",
+  "state",
+  "country",
+  "houseNo",
+  "street",
+  "city",
+];
+
+const trimIfString = (value) =>
+  typeof value === "string" ? value.trim() : value;
+
+const buildAddressPayload = (source = {}) => ({
+  fullName: trimIfString(source.fullName),
+  mobileNumber: trimIfString(source.mobileNumber),
+  alternateMobileNumber: trimIfString(source.alternateMobileNumber) || "",
+  pincode: trimIfString(source.pincode),
+  state: trimIfString(source.state),
+  country: trimIfString(source.country),
+  houseNo: trimIfString(source.houseNo),
+  street: trimIfString(source.street),
+  city: trimIfString(source.city),
+  landmark: trimIfString(source.landmark) || "",
+});
+
+const getMissingRequiredFields = (payload) =>
+  REQUIRED_FIELDS.filter((field) => !payload[field]);
+
+const getAddresses = async (req, res) => {
   try {
+    // const addresses = await Address.find({ user: req.userId }).sort({
+    //   createdAt: -1,
+    // });
     const addresses = await Address.find().sort({ createdAt: -1 });
-    res.status(200).json(addresses);
+
+    return res.status(200).json(addresses);
   } catch (error) {
     console.error("Failed to fetch addresses:", error);
-    res.status(500).json({ message: "Failed to fetch addresses" });
+    return res.status(500).json({ message: "Failed to fetch addresses" });
   }
 };
 
 const getAddressById = async (req, res) => {
   try {
+    // const address = await Address.findOne({
+    //   _id: req.params.id,
+    //   user: req.userId,
+    // });
     const address = await Address.findById(req.params.id);
+
     if (!address) {
       return res.status(404).json({ message: "Address not found" });
     }
-    res.status(200).json(address);
+
+    return res.status(200).json(address);
   } catch (error) {
     console.error("Failed to fetch address:", error);
-    res.status(500).json({ message: "Failed to fetch address" });
+    return res.status(500).json({ message: "Failed to fetch address" });
   }
 };
 
 const createAddress = async (req, res) => {
   try {
-    const title = req.body.title?.trim();
-    const addressText = req.body.address?.trim();
-    const phone = req.body.phone?.trim();
-    const mapLocation = req.body.mapLocation?.trim();
+    const payload = buildAddressPayload(req.body);
+    const missingFields = getMissingRequiredFields(payload);
 
-    if (!title || !addressText || !phone || !mapLocation) {
-      return res
-        .status(400)
-        .json({ message: "title, address, phone, and mapLocation are required" });
+    if (missingFields.length > 0) {
+      return res.status(400).json({
+        message: `Missing required fields: ${missingFields.join(", ")}`,
+      });
     }
 
     const address = await Address.create({
-      title,
-      address: addressText,
-      phone,
-      mapLocation,
+      ...payload,
+      // user: req.userId,
     });
 
-    res.status(201).json(address);
+    return res.status(201).json(address);
   } catch (error) {
     console.error("Failed to create address:", error);
-    res.status(500).json({ message: "Failed to create address" });
+    return res.status(500).json({ message: "Failed to create address" });
   }
 };
 
 const updateAddress = async (req, res) => {
   try {
+    // const address = await Address.findOne({
+    //   _id: req.params.id,
+    //   user: req.userId,
+    // });
     const address = await Address.findById(req.params.id);
+
     if (!address) {
       return res.status(404).json({ message: "Address not found" });
     }
 
-    if (req.body.title !== undefined) {
-      const value = req.body.title.trim();
-      if (!value) {
-        return res.status(400).json({ message: "title cannot be empty" });
-      }
-      address.title = value;
+    const payload = buildAddressPayload({
+      ...address.toObject(),
+      ...req.body,
+    });
+    const missingFields = getMissingRequiredFields(payload);
+
+    if (missingFields.length > 0) {
+      return res.status(400).json({
+        message: `Missing required fields: ${missingFields.join(", ")}`,
+      });
     }
 
-    if (req.body.address !== undefined) {
-      const value = req.body.address.trim();
-      if (!value) {
-        return res.status(400).json({ message: "address cannot be empty" });
-      }
-      address.address = value;
-    }
-
-    if (req.body.phone !== undefined) {
-      const value = req.body.phone.trim();
-      if (!value) {
-        return res.status(400).json({ message: "phone cannot be empty" });
-      }
-      address.phone = value;
-    }
-
-    if (req.body.mapLocation !== undefined) {
-      const value = req.body.mapLocation.trim();
-      if (!value) {
-        return res.status(400).json({ message: "mapLocation cannot be empty" });
-      }
-      address.mapLocation = value;
-    }
-
+    Object.assign(address, payload);
     await address.save();
-    res.status(200).json(address);
+
+    return res.status(200).json(address);
   } catch (error) {
     console.error("Failed to update address:", error);
-    res.status(500).json({ message: "Failed to update address" });
+    return res.status(500).json({ message: "Failed to update address" });
   }
 };
 
 const deleteAddress = async (req, res) => {
   try {
+    // const address = await Address.findOne({
+    //   _id: req.params.id,
+    //   user: req.userId,
+    // });
     const address = await Address.findById(req.params.id);
+
     if (!address) {
       return res.status(404).json({ message: "Address not found" });
     }
 
     await address.deleteOne();
-    res.status(200).json({ message: "Address deleted" });
+    return res.status(200).json({ message: "Address deleted" });
   } catch (error) {
     console.error("Failed to delete address:", error);
-    res.status(500).json({ message: "Failed to delete address" });
+    return res.status(500).json({ message: "Failed to delete address" });
   }
 };
 

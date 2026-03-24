@@ -157,8 +157,7 @@ app.use("/api/blog-subcategories", blogSubCategoryRoutes);
 
 
 
-// Addresses: router handles auth for writes; reads remain public
-app.use("/api/addresses", addressRoutes);
+
 // Contact submissions: router handles auth for writes; reads remain public
 app.use("/api/contact-us", contactUsRoutes);
 // Careers and applications
@@ -175,10 +174,17 @@ app.use("/api/cities", countRoutes);
 app.use("/api/analytics", analyticsRoutes);
 // Patient success stories: public read, protected write
 app.use("/api/patient-success-stories", patientSuccessRoutes);
+
+
+
 // Product categories
 app.use("/api/product-categories", productCategoryRoutes);
 // Products: public read, protected write
 app.use("/api/products", productRoutes);
+// Authenticated user delivery addresses
+app.use("/api/addresses", addressRoutes);
+
+
 // 404 handler for any unmatched routes
 app.use((req, res) => {
   res.status(404).json({ success: false, message: "Not found" });
