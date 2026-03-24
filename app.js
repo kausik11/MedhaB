@@ -20,6 +20,7 @@ const analyticsRoutes = require("./src/routes/analyticsRoutes");
 const patientSuccessRoutes = require("./src/routes/patientSuccessRoutes");
 const productRoutes = require("./src/routes/productRoutes");
 const productCategoryRoutes = require("./src/routes/productCategoryRoutes");
+const orderRoutes = require("./src/routes/orderRoutes");
 const pricingRoutes = require("./src/routes/pricingRoutes");
 const authMiddleware = require("./src/middlewares/authMiddleware");
 const globalErrorHandler = require("./src/middlewares/globalErrorHandler");
@@ -181,6 +182,8 @@ app.use("/api/patient-success-stories", patientSuccessRoutes);
 app.use("/api/product-categories", productCategoryRoutes);
 // Products: public read, protected write
 app.use("/api/products", productRoutes);
+// Orders
+app.use("/api/orders", orderRoutes);
 // Authenticated user delivery addresses
 app.use("/api/addresses", addressRoutes);
 
