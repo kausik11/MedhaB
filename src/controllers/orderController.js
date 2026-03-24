@@ -2,6 +2,8 @@ const mongoose = require("mongoose");
 const Order = require("../models/Order");
 const Product = require("../models/Product");
 const Address = require("../models/Address");
+const Offer = require("../models/Offer");
+const { normalizePromoCode } = require("../models/Offer");
 
 const ORDER_STATUSES = [
   "pending",
@@ -15,6 +17,7 @@ const ORDER_STATUSES = [
 ];
 
 const PAYMENT_METHODS = ["COD"];
+const roundAmount = (value) => Number((value || 0).toFixed(2));
 
 const isNonEmptyArray = (value) => Array.isArray(value) && value.length > 0;
 
@@ -86,12 +89,21 @@ const getProductSnapshot = async (requestedItems = []) => {
     const price = Number(product.actualPrice || 0);
     const effectiveUnitPrice =
       typeof product.discountPrice === "number" ? product.discountPrice : price;
+    const productDiscountPercentage =
+      typeof product.discountPercentage === "number"
+        ? product.discountPercentage
+        : 0;
+    const productDiscountAmount = Number(
+      ((price - effectiveUnitPrice) * quantity).toFixed(2)
+    );
 
     normalizedItems.push({
       productId: product._id,
       quantity,
       price,
-      discount: Number(((price - effectiveUnitPrice) * quantity).toFixed(2)),
+      discount: productDiscountAmount,
+      productDiscountPercentage,
+      productDiscountAmount,
       finalPrice: Number((effectiveUnitPrice * quantity).toFixed(2)),
       image: product.images?.[0]?.imageUrl || "",
       category: Array.isArray(product.category)
@@ -136,6 +148,92 @@ const validateAddressRefs = async ({
   return { shippingAddress: shippingAddressDoc, billingAddress: billingAddressDoc };
 };
 
+const cloneExistingOrderItems = (items = []) =>
+  items.map((item) => ({
+    productId: item.productId,
+    quantity: item.quantity,
+    price: item.price,
+    discount: item.discount,
+    productDiscountPercentage: item.productDiscountPercentage || 0,
+    productDiscountAmount: item.productDiscountAmount ?? item.discount ?? 0,
+    finalPrice: item.finalPrice,
+    image: item.image || "",
+    category: item.category || "",
+  }));
+
+const calculateItemTotals = (items = []) =>
+  items.reduce(
+    (totals, item) => {
+      const lineSubtotal = roundAmount(item.quantity * item.price);
+      const lineDiscount = roundAmount(
+        item.productDiscountAmount ?? item.discount ?? 0
+      );
+
+      totals.subtotal += lineSubtotal;
+      totals.productDiscountTotal += lineDiscount;
+      return totals;
+    },
+    { subtotal: 0, productDiscountTotal: 0 }
+  );
+
+const resolvePromoFields = async ({
+  promoCode,
+  bodyHasPromoCode,
+  existingOrder,
+  items,
+}) => {
+  const normalizedPromoCode = bodyHasPromoCode
+    ? normalizePromoCode(promoCode)
+    : undefined;
+
+  if (bodyHasPromoCode && !normalizedPromoCode) {
+    return {
+      promoCode: "",
+      promoDiscountPercentage: 0,
+      promoDiscountAmount: 0,
+    };
+  }
+
+  if (bodyHasPromoCode) {
+    const offer = await Offer.findOne({ promoCode: normalizedPromoCode });
+    if (!offer) {
+      return { error: "Invalid promoCode" };
+    }
+
+    const { subtotal, productDiscountTotal } = calculateItemTotals(items);
+    const baseSubtotal = roundAmount(Math.max(subtotal - productDiscountTotal, 0));
+    const promoDiscountAmount = roundAmount(
+      (baseSubtotal * offer.discountPercentage) / 100
+    );
+
+    return {
+      promoCode: offer.promoCode,
+      promoDiscountPercentage: offer.discountPercentage,
+      promoDiscountAmount,
+    };
+  }
+
+  if (existingOrder?.promoCode) {
+    const { subtotal, productDiscountTotal } = calculateItemTotals(items);
+    const baseSubtotal = roundAmount(Math.max(subtotal - productDiscountTotal, 0));
+    const promoDiscountPercentage = existingOrder.promoDiscountPercentage || 0;
+
+    return {
+      promoCode: existingOrder.promoCode,
+      promoDiscountPercentage,
+      promoDiscountAmount: roundAmount(
+        (baseSubtotal * promoDiscountPercentage) / 100
+      ),
+    };
+  }
+
+  return {
+    promoCode: "",
+    promoDiscountPercentage: 0,
+    promoDiscountAmount: 0,
+  };
+};
+
 const buildOrderPayload = async (body = {}, existingOrder) => {
   const parsedIsSameAsShipping = toOptionalBoolean(body.isSameAsShipping);
   const nextIsSameAsShipping =
@@ -145,10 +243,16 @@ const buildOrderPayload = async (body = {}, existingOrder) => {
     return { error: "isSameAsShipping must be true or false." };
   }
 
-  const requestedItems = body.orderItems ?? existingOrder?.orderItems;
-  const { items, error: itemsError } = await getProductSnapshot(requestedItems);
-  if (itemsError) {
-    return { error: itemsError };
+  let items;
+  if (!existingOrder || body.orderItems !== undefined) {
+    const requestedItems = body.orderItems ?? existingOrder?.orderItems;
+    const { items: nextItems, error: itemsError } = await getProductSnapshot(requestedItems);
+    if (itemsError) {
+      return { error: itemsError };
+    }
+    items = nextItems;
+  } else {
+    items = cloneExistingOrderItems(existingOrder.orderItems);
   }
 
   const shippingDetails = body.shippingDetails ?? existingOrder?.shippingDetails;
@@ -175,6 +279,16 @@ const buildOrderPayload = async (body = {}, existingOrder) => {
     return { error: `orderStatus must be one of: ${ORDER_STATUSES.join(", ")}` };
   }
 
+  const promoFields = await resolvePromoFields({
+    promoCode: body.promoCode,
+    bodyHasPromoCode: Object.prototype.hasOwnProperty.call(body, "promoCode"),
+    existingOrder,
+    items,
+  });
+  if (promoFields.error) {
+    return { error: promoFields.error };
+  }
+
   return {
     payload: {
       orderItems: items,
@@ -183,6 +297,9 @@ const buildOrderPayload = async (body = {}, existingOrder) => {
       isSameAsShipping: nextIsSameAsShipping,
       paymentMethod,
       orderStatus: nextStatus,
+      promoCode: promoFields.promoCode,
+      promoDiscountPercentage: promoFields.promoDiscountPercentage,
+      promoDiscountAmount: promoFields.promoDiscountAmount,
     },
   };
 };

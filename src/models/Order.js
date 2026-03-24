@@ -45,6 +45,17 @@ const orderItemSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
+    productDiscountPercentage: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 100,
+    },
+    productDiscountAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     finalPrice: {
       type: Number,
       required: true,
@@ -126,6 +137,30 @@ const orderSchema = new mongoose.Schema(
       min: 0,
       default: 0,
     },
+    productDiscountTotal: {
+      type: Number,
+      required: true,
+      min: 0,
+      default: 0,
+    },
+    promoCode: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    promoDiscountPercentage: {
+      type: Number,
+      required: true,
+      min: 0,
+      max: 100,
+      default: 0,
+    },
+    promoDiscountAmount: {
+      type: Number,
+      required: true,
+      min: 0,
+      default: 0,
+    },
     discountTotal: {
       type: Number,
       required: true,
@@ -176,19 +211,40 @@ orderSchema.pre("validate", function syncOrderFields() {
 
   const orderItems = Array.isArray(this.orderItems) ? this.orderItems : [];
   let subtotal = 0;
-  let discountTotal = 0;
+  let productDiscountTotal = 0;
 
   orderItems.forEach((item) => {
     const lineSubtotal = roundAmount(item.quantity * item.price);
-    const lineDiscount = roundAmount(item.discount);
+    const lineDiscount = roundAmount(
+      item.productDiscountAmount ?? item.discount ?? 0
+    );
 
+    item.productDiscountAmount = lineDiscount;
+    item.discount = lineDiscount;
     item.finalPrice = roundAmount(Math.max(lineSubtotal - lineDiscount, 0));
     subtotal += lineSubtotal;
-    discountTotal += lineDiscount;
+    productDiscountTotal += lineDiscount;
   });
 
   this.subtotal = roundAmount(subtotal);
-  this.discountTotal = roundAmount(discountTotal);
+  this.productDiscountTotal = roundAmount(productDiscountTotal);
+
+  const baseSubtotalAfterProductDiscount = roundAmount(
+    Math.max(this.subtotal - this.productDiscountTotal, 0)
+  );
+
+  if (!this.promoCode) {
+    this.promoDiscountPercentage = 0;
+    this.promoDiscountAmount = 0;
+  } else {
+    this.promoDiscountAmount = roundAmount(
+      (baseSubtotalAfterProductDiscount * this.promoDiscountPercentage) / 100
+    );
+  }
+
+  this.discountTotal = roundAmount(
+    this.productDiscountTotal + this.promoDiscountAmount
+  );
 
   const discountedSubtotal = roundAmount(
     Math.max(this.subtotal - this.discountTotal, 0)
