@@ -12,8 +12,6 @@ const callbackRoutes = require("./src/routes/callbackRoutes");
 const newsletterRoutes = require("./src/routes/newsletterRoutes");
 const addressRoutes = require("./src/routes/addressRoutes");
 const contactUsRoutes = require("./src/routes/contactUsRoutes");
-const jobRoutes = require("./src/routes/jobRoutes");
-const applicationRoutes = require("./src/routes/applicationRoutes");
 const userRoutes = require("./src/routes/userRoutes");
 const countRoutes = require("./src/routes/countRoutes");
 const analyticsRoutes = require("./src/routes/analyticsRoutes");
@@ -161,9 +159,6 @@ app.use("/api/blog-subcategories", blogSubCategoryRoutes);
 
 // Contact submissions: router handles auth for writes; reads remain public
 app.use("/api/contact-us", contactUsRoutes);
-// Careers and applications
-app.use("/api/jobs", jobRoutes);
-app.use("/api/applications", applicationRoutes);
 
 // Public endpoints
 app.use("/api/callbacks", callbackRoutes);
