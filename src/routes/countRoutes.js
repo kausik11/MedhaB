@@ -1,6 +1,6 @@
 const express = require("express");
 const { getCounts, updateCounts } = require("../controllers/countController");
-const authMiddleware = require("../middlewares/authMiddleware");
+const adminMiddleware = require("../middlewares/adminMiddleware");
 
 const router = express.Router();
 
@@ -8,6 +8,6 @@ const router = express.Router();
 router.get("/", getCounts);
 
 // Protected: update counts, never allowing decreases
-router.patch("/", authMiddleware, updateCounts);
+router.patch("/", adminMiddleware, updateCounts);
 
 module.exports = router;

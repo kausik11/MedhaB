@@ -97,7 +97,7 @@ const registerUser = async (req, res) => {
   }
 };
 
-const loginUser = async (req, res) => {
+const authenticateUser = async (req, res, { adminOnly = false } = {}) => {
   try {
     ensureJwtConfigured();
 
@@ -117,7 +117,7 @@ const loginUser = async (req, res) => {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    if (!ADMIN_PANEL_ROLES.includes(user.role)) {
+    if (adminOnly && !ADMIN_PANEL_ROLES.includes(user.role)) {
       return res.status(403).json({
         message: "You don't have permission to access admin panel",
       });
@@ -133,6 +133,11 @@ const loginUser = async (req, res) => {
     return res.status(500).json({ message: "Failed to login" });
   }
 };
+
+const loginUser = async (req, res) => authenticateUser(req, res);
+
+const loginAdminUser = async (req, res) =>
+  authenticateUser(req, res, { adminOnly: true });
 
 const getUsers = async (_req, res) => {
   try {
@@ -206,6 +211,7 @@ const updateUser = async (req, res) => {
 module.exports = {
   registerUser,
   loginUser,
+  loginAdminUser,
   getUsers,
   getUserById,
   updateUser,

@@ -98,6 +98,14 @@ const statusHistorySchema = new mongoose.Schema(
 
 const orderSchema = new mongoose.Schema(
   {
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required() {
+        return this.isNew;
+      },
+      index: true,
+    },
     orderId: {
       type: String,
       required: true,

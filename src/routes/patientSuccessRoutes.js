@@ -6,7 +6,7 @@ const {
   updateStory,
   deleteStory,
 } = require("../controllers/patientSuccessController");
-const authMiddleware = require("../middlewares/authMiddleware");
+const adminMiddleware = require("../middlewares/adminMiddleware");
 
 const router = express.Router();
 
@@ -15,8 +15,8 @@ router.get("/", getStories);
 router.get("/:id", getStoryById);
 
 // Protected writes
-router.post("/", authMiddleware, createStory);
-router.patch("/:id", authMiddleware, updateStory);
-router.delete("/:id", authMiddleware, deleteStory);
+router.post("/", adminMiddleware, createStory);
+router.patch("/:id", adminMiddleware, updateStory);
+router.delete("/:id", adminMiddleware, deleteStory);
 
 module.exports = router;

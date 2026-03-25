@@ -8,16 +8,16 @@ const {
   deleteOffer,
   applyOfferByPromoCode,
 } = require("../controllers/offerController");
-const authMiddleware = require("../middlewares/authMiddleware");
+const adminMiddleware = require("../middlewares/adminMiddleware");
 
 const router = express.Router();
 
-router.get("/", authMiddleware, getOffers);
+router.get("/", adminMiddleware, getOffers);
 router.get("/promocode/:promoCode", getOfferByPromoCode);
-router.get("/:id", authMiddleware, getOfferById);
-router.post("/", authMiddleware, createOffer);
+router.get("/:id", adminMiddleware, getOfferById);
+router.post("/", adminMiddleware, createOffer);
 router.post("/apply", applyOfferByPromoCode);
-router.put("/:id", authMiddleware, updateOffer);
-router.delete("/:id", authMiddleware, deleteOffer);
+router.put("/:id", adminMiddleware, updateOffer);
+router.delete("/:id", adminMiddleware, deleteOffer);
 
 module.exports = router;

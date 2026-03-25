@@ -3,7 +3,12 @@ const Order = require("../models/Order");
 const Product = require("../models/Product");
 const Address = require("../models/Address");
 const Offer = require("../models/Offer");
+const User = require("../models/User");
 const { normalizePromoCode } = require("../models/Offer");
+const { ADMIN_PANEL_ROLES } = require("../constants/userRoles");
+const sendEmail = require("../utils/sendEmail");
+const orderPlacedSuccess = require("../utils/orderPlacedSuccess");
+const orderStatusUpdated = require("../utils/orderStatusUpdated");
 
 const ORDER_STATUSES = [
   "pending",
@@ -40,9 +45,11 @@ const parsePositiveNumber = (value) => {
 };
 
 const isValidObjectId = (value) => mongoose.Types.ObjectId.isValid(value);
+const isAdminRequest = (req) => ADMIN_PANEL_ROLES.includes(req.userRole);
 
 const populateOrderQuery = (query) =>
   query
+    .populate("user", "firstName lastName email phoneNumber role")
     .populate("shippingDetails")
     .populate("billingAddress")
     .populate({
@@ -122,14 +129,18 @@ const validateAddressRefs = async ({
   shippingDetails,
   billingAddress,
   isSameAsShipping,
+  requestUserId,
 }) => {
   if (!isValidObjectId(shippingDetails)) {
     return { error: "shippingDetails must be a valid address id." };
   }
 
-  const shippingAddressDoc = await Address.findById(shippingDetails);
+  const shippingAddressQuery = requestUserId
+    ? { _id: shippingDetails, user: requestUserId }
+    : { _id: shippingDetails };
+  const shippingAddressDoc = await Address.findOne(shippingAddressQuery);
   if (!shippingAddressDoc) {
-    return { error: "Shipping address not found." };
+    return { error: "Shipping address not found for the logged in user." };
   }
 
   if (isSameAsShipping) {
@@ -140,9 +151,12 @@ const validateAddressRefs = async ({
     return { error: "billingAddress must be a valid address id when isSameAsShipping is false." };
   }
 
-  const billingAddressDoc = await Address.findById(billingAddress);
+  const billingAddressQuery = requestUserId
+    ? { _id: billingAddress, user: requestUserId }
+    : { _id: billingAddress };
+  const billingAddressDoc = await Address.findOne(billingAddressQuery);
   if (!billingAddressDoc) {
-    return { error: "Billing address not found." };
+    return { error: "Billing address not found for the logged in user." };
   }
 
   return { shippingAddress: shippingAddressDoc, billingAddress: billingAddressDoc };
@@ -234,7 +248,7 @@ const resolvePromoFields = async ({
   };
 };
 
-const buildOrderPayload = async (body = {}, existingOrder) => {
+const buildOrderPayload = async (body = {}, existingOrder, requestUserId) => {
   const parsedIsSameAsShipping = toOptionalBoolean(body.isSameAsShipping);
   const nextIsSameAsShipping =
     parsedIsSameAsShipping ?? existingOrder?.isSameAsShipping ?? true;
@@ -264,6 +278,7 @@ const buildOrderPayload = async (body = {}, existingOrder) => {
     shippingDetails,
     billingAddress,
     isSameAsShipping: nextIsSameAsShipping,
+    requestUserId,
   });
   if (addressError) {
     return { error: addressError };
@@ -306,8 +321,9 @@ const buildOrderPayload = async (body = {}, existingOrder) => {
 
 const getOrders = async (_req, res) => {
   try {
+    const query = isAdminRequest(_req) ? {} : { user: _req.userId };
     const orders = await populateOrderQuery(
-      Order.find().sort({ createdAt: -1 })
+      Order.find(query).sort({ createdAt: -1 })
     );
 
     return res.status(200).json(orders);
@@ -323,7 +339,10 @@ const getOrderById = async (req, res) => {
       return res.status(400).json({ message: "Invalid order id" });
     }
 
-    const order = await populateOrderQuery(Order.findById(req.params.id));
+    const query = isAdminRequest(req)
+      ? { _id: req.params.id }
+      : { _id: req.params.id, user: req.userId };
+    const order = await populateOrderQuery(Order.findOne(query));
     if (!order) {
       return res.status(404).json({ message: "Order not found" });
     }
@@ -342,7 +361,10 @@ const getOrderByOrderId = async (req, res) => {
       return res.status(400).json({ message: "orderId is required" });
     }
 
-    const order = await populateOrderQuery(Order.findOne({ orderId }));
+    const query = isAdminRequest(req)
+      ? { orderId }
+      : { orderId, user: req.userId };
+    const order = await populateOrderQuery(Order.findOne(query));
     if (!order) {
       return res.status(404).json({ message: "Order not found" });
     }
@@ -361,7 +383,10 @@ const getOrderStatusByOrderId = async (req, res) => {
       return res.status(400).json({ message: "orderId is required" });
     }
 
-    const order = await Order.findOne({ orderId }).select(
+    const query = isAdminRequest(req)
+      ? { orderId }
+      : { orderId, user: req.userId };
+    const order = await Order.findOne(query).select(
       "orderId orderStatus statusHistory updatedAt createdAt"
     );
 
@@ -378,13 +403,21 @@ const getOrderStatusByOrderId = async (req, res) => {
 
 const createOrder = async (req, res) => {
   try {
-    const { payload, error } = await buildOrderPayload(req.body);
+    const { payload, error } = await buildOrderPayload(
+      req.body,
+      null,
+      req.userId
+    );
     if (error) {
       return res.status(400).json({ message: error });
     }
 
-    const order = await Order.create(payload);
+    const order = await Order.create({
+      ...payload,
+      user: req.userId,
+    });
     await order.populate([
+      { path: "user", select: "firstName lastName email phoneNumber role" },
       { path: "shippingDetails" },
       { path: "billingAddress" },
       {
@@ -392,6 +425,14 @@ const createOrder = async (req, res) => {
         populate: { path: "category", select: "name normalizedName" },
       },
     ]);
+
+    if (req.user?.email) {
+      await sendEmail(
+        req.user.email,
+        `Order placed: ${order.orderId}`,
+        orderPlacedSuccess({ user: req.user, order })
+      );
+    }
 
     return res.status(201).json(order);
   } catch (error) {
@@ -406,13 +447,16 @@ const updateOrder = async (req, res) => {
       return res.status(400).json({ message: "Invalid order id" });
     }
 
-    const order = await Order.findById(req.params.id);
+    const order = await Order.findById(req.params.id).populate(
+      "user",
+      "firstName lastName email phoneNumber role"
+    );
     if (!order) {
       return res.status(404).json({ message: "Order not found" });
     }
 
     const previousStatus = order.orderStatus;
-    const { payload, error } = await buildOrderPayload(req.body, order);
+    const { payload, error } = await buildOrderPayload(req.body, order, order.user?._id);
     if (error) {
       return res.status(400).json({ message: error });
     }
@@ -420,15 +464,17 @@ const updateOrder = async (req, res) => {
     Object.assign(order, payload);
 
     if (payload.orderStatus !== previousStatus) {
+      const statusNote = `${req.body.note || ""}`.trim();
       order.statusHistory.push({
         status: payload.orderStatus,
         timestamp: new Date(),
-        note: `${req.body.note || ""}`.trim(),
+        note: statusNote,
       });
     }
 
     await order.save();
     await order.populate([
+      { path: "user", select: "firstName lastName email phoneNumber role" },
       { path: "shippingDetails" },
       { path: "billingAddress" },
       {
@@ -436,6 +482,15 @@ const updateOrder = async (req, res) => {
         populate: { path: "category", select: "name normalizedName" },
       },
     ]);
+
+    if (payload.orderStatus !== previousStatus && order.user?.email) {
+      const statusNote = `${req.body.note || ""}`.trim();
+      await sendEmail(
+        order.user.email,
+        `Order status updated: ${order.orderId}`,
+        orderStatusUpdated({ user: order.user, order, note: statusNote })
+      );
+    }
 
     return res.status(200).json(order);
   } catch (error) {
@@ -457,22 +512,35 @@ const updateOrderStatus = async (req, res) => {
       });
     }
 
-    const order = await Order.findById(req.params.id);
+    const order = await Order.findById(req.params.id).populate(
+      "user",
+      "firstName lastName email phoneNumber role"
+    );
     if (!order) {
       return res.status(404).json({ message: "Order not found" });
     }
 
     if (order.orderStatus !== orderStatus) {
+      const statusNote = `${note || ""}`.trim();
       order.orderStatus = orderStatus;
       order.statusHistory.push({
         status: orderStatus,
         timestamp: new Date(),
-        note: `${note || ""}`.trim(),
+        note: statusNote,
       });
       await order.save();
+
+      if (order.user?.email) {
+        await sendEmail(
+          order.user.email,
+          `Order status updated: ${order.orderId}`,
+          orderStatusUpdated({ user: order.user, order, note: statusNote })
+        );
+      }
     }
 
     await order.populate([
+      { path: "user", select: "firstName lastName email phoneNumber role" },
       { path: "shippingDetails" },
       { path: "billingAddress" },
       {

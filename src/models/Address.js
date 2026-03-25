@@ -31,12 +31,14 @@ const getDeliveryWindow = (country) => {
 
 const addressSchema = new mongoose.Schema(
   {
-    // user: {
-    //   type: mongoose.Schema.Types.ObjectId,
-    //   ref: "User",
-    //   required: true,
-    //   index: true,
-    // },
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required() {
+        return this.isNew;
+      },
+      index: true,
+    },
     fullName: { type: String, required: true, trim: true },
     mobileNumber: { type: String, required: true, trim: true },
     alternateMobileNumber: { type: String, trim: true, default: "" },
@@ -55,12 +57,6 @@ const addressSchema = new mongoose.Schema(
     deliveryDaysMin: { type: Number, required: true },
     deliveryDaysMax: { type: Number, required: true },
     deliveryTime: { type: String, required: true, trim: true },
-    
-    // officeLocation: {
-    //   city: { type: String, default: OFFICE_LOCATION.city },
-    //   pincode: { type: String, default: OFFICE_LOCATION.pincode },
-    //   country: { type: String, default: OFFICE_LOCATION.country },
-    // },
   },
   { timestamps: true }
 );

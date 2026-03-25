@@ -6,7 +6,7 @@ const {
   updateContact,
   deleteContact,
 } = require("../controllers/contactUsController");
-const authMiddleware = require("../middlewares/authMiddleware");
+const adminMiddleware = require("../middlewares/adminMiddleware");
 
 const router = express.Router();
 
@@ -16,7 +16,7 @@ router.get("/:id", getContactById);
 router.post("/", createContact);
 
 // Protected
-router.put("/:id", authMiddleware, updateContact);
-router.delete("/:id", authMiddleware, deleteContact);
+router.put("/:id", adminMiddleware, updateContact);
+router.delete("/:id", adminMiddleware, deleteContact);
 
 module.exports = router;

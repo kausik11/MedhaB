@@ -1,4 +1,5 @@
 const Address = require("../models/Address");
+const { ADMIN_PANEL_ROLES } = require("../constants/userRoles");
 
 const REQUIRED_FIELDS = [
   "fullName",
@@ -30,12 +31,12 @@ const buildAddressPayload = (source = {}) => ({
 const getMissingRequiredFields = (payload) =>
   REQUIRED_FIELDS.filter((field) => !payload[field]);
 
+const isAdminRequest = (req) => ADMIN_PANEL_ROLES.includes(req.userRole);
+
 const getAddresses = async (req, res) => {
   try {
-    // const addresses = await Address.find({ user: req.userId }).sort({
-    //   createdAt: -1,
-    // });
-    const addresses = await Address.find().sort({ createdAt: -1 });
+    const query = isAdminRequest(req) ? {} : { user: req.userId };
+    const addresses = await Address.find(query).sort({ createdAt: -1 });
 
     return res.status(200).json(addresses);
   } catch (error) {
@@ -46,11 +47,10 @@ const getAddresses = async (req, res) => {
 
 const getAddressById = async (req, res) => {
   try {
-    // const address = await Address.findOne({
-    //   _id: req.params.id,
-    //   user: req.userId,
-    // });
-    const address = await Address.findById(req.params.id);
+    const query = isAdminRequest(req)
+      ? { _id: req.params.id }
+      : { _id: req.params.id, user: req.userId };
+    const address = await Address.findOne(query);
 
     if (!address) {
       return res.status(404).json({ message: "Address not found" });
@@ -76,7 +76,7 @@ const createAddress = async (req, res) => {
 
     const address = await Address.create({
       ...payload,
-      // user: req.userId,
+      user: req.userId,
     });
 
     return res.status(201).json(address);
@@ -88,11 +88,10 @@ const createAddress = async (req, res) => {
 
 const updateAddress = async (req, res) => {
   try {
-    // const address = await Address.findOne({
-    //   _id: req.params.id,
-    //   user: req.userId,
-    // });
-    const address = await Address.findById(req.params.id);
+    const query = isAdminRequest(req)
+      ? { _id: req.params.id }
+      : { _id: req.params.id, user: req.userId };
+    const address = await Address.findOne(query);
 
     if (!address) {
       return res.status(404).json({ message: "Address not found" });
@@ -122,11 +121,10 @@ const updateAddress = async (req, res) => {
 
 const deleteAddress = async (req, res) => {
   try {
-    // const address = await Address.findOne({
-    //   _id: req.params.id,
-    //   user: req.userId,
-    // });
-    const address = await Address.findById(req.params.id);
+    const query = isAdminRequest(req)
+      ? { _id: req.params.id }
+      : { _id: req.params.id, user: req.userId };
+    const address = await Address.findOne(query);
 
     if (!address) {
       return res.status(404).json({ message: "Address not found" });
