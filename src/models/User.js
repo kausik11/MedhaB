@@ -14,6 +14,7 @@ const userSchema = new mongoose.Schema(
     userImagePublicId: { type: String, trim: true },
     password: { type: String, required: true, minlength: 6 },
     tokenVersion : { type: Number, default: 0 },
+    isVerifiedEmail: { type: Boolean, default: false },
     role: { type: String, required: true, enum: USER_ROLES, default: "normal" },
   },
   { timestamps: true }

@@ -1,9 +1,17 @@
+const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const cloudinary = require("../config/cloudinary");
 const User = require("../models/User");
 const { ADMIN_PANEL_ROLES, USER_ROLES } = require("../constants/userRoles");
 const sendEmail = require("../utils/sendEmail");
-const registrationSuccess = require("../utils/registrationSuccess")
+const registrationSuccess = require("../utils/registrationSuccess");
+const emailVerificationOtp = require("../utils/emailVerificationOtp");
+const {
+  setEmailVerificationChallenge,
+  getEmailVerificationChallenge,
+  clearEmailVerificationChallenge,
+} = require("../utils/emailVerificationStore");
+const { verifyFirebasePhoneIdToken } = require("../utils/firebasePhoneAuth");
 
 const { JWT_SECRET } = process.env;
 
@@ -16,6 +24,60 @@ const ensureJwtConfigured = () => {
 const generateToken = (userId, tokenVersion) => {
   ensureJwtConfigured();
   return jwt.sign({ userId, tokenVersion }, JWT_SECRET, { expiresIn: "7d" });
+};
+
+const hashValue = (value) =>
+  crypto.createHash("sha256").update(String(value)).digest("hex");
+
+const normalizeEmail = (email) => String(email || "").trim().toLowerCase();
+
+const generateEmailOtp = () =>
+  String(Math.floor(100000 + Math.random() * 900000));
+
+const createEmailOtpChallengeToken = (email, otp) => {
+  ensureJwtConfigured();
+  return jwt.sign(
+    {
+      purpose: "email-otp-challenge",
+      email,
+      otpHash: hashValue(otp),
+    },
+    JWT_SECRET,
+    { expiresIn: "10m" }
+  );
+};
+
+const createVerifiedEmailToken = (email) => {
+  ensureJwtConfigured();
+  return jwt.sign(
+    {
+      purpose: "email-verified",
+      email,
+    },
+    JWT_SECRET,
+    { expiresIn: "1h" }
+  );
+};
+
+const hasVerifiedEmailToken = (email, verifiedEmailToken) => {
+  if (!verifiedEmailToken) {
+    return false;
+  }
+
+  try {
+    const payload = jwt.verify(verifiedEmailToken, JWT_SECRET);
+    return payload?.purpose === "email-verified" && payload.email === email;
+  } catch {
+    return false;
+  }
+};
+
+const issueUserSession = async (res, user, statusCode = 200, extra = {}) => {
+  user.tokenVersion += 1;
+  await user.save();
+
+  const token = generateToken(user._id, user.tokenVersion);
+  return res.status(statusCode).json({ user, token, ...extra });
 };
 
 const uploadUserImage = async (file) => {
@@ -31,6 +93,168 @@ const uploadUserImage = async (file) => {
   };
 };
 
+const sendRegistrationEmailOtp = async (req, res) => {
+  try {
+    const email = normalizeEmail(req.body.email);
+    const firstName = String(req.body.firstName || "").trim();
+
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ message: "Valid email is required" });
+    }
+
+    const existing = await User.findOne({ email });
+    if (existing) {
+      return res.status(409).json({ message: "Email already registered" });
+    }
+
+    const otp = generateEmailOtp();
+    setEmailVerificationChallenge({
+      email,
+      otpHash: hashValue(otp),
+      userId: null,
+    });
+    const emailVerificationToken = createEmailOtpChallengeToken(email, otp);
+    const emailSent = await sendEmail(
+      email,
+      "Verify Your Email",
+      emailVerificationOtp({ firstName, otp })
+    );
+
+    if (!emailSent) {
+      return res.status(500).json({ message: "Failed to send email OTP" });
+    }
+
+    return res.status(200).json({
+      message: "Email OTP sent successfully",
+      email,
+      emailVerificationToken,
+    });
+  } catch (error) {
+    console.error("Failed to send registration email OTP:", error);
+    return res.status(500).json({ message: "Failed to send email OTP" });
+  }
+};
+
+const verifyRegistrationEmailOtp = async (req, res) => {
+  try {
+    ensureJwtConfigured();
+
+    const email = normalizeEmail(req.body.email);
+    const otp = String(req.body.otp || "").trim();
+    const emailVerificationToken = req.body.emailVerificationToken;
+
+    if (!email || !otp || !emailVerificationToken) {
+      return res.status(400).json({
+        message: "Email, OTP and email verification token are required",
+      });
+    }
+
+    let payload;
+    try {
+      payload = jwt.verify(emailVerificationToken, JWT_SECRET);
+    } catch {
+      return res.status(400).json({ message: "Invalid or expired email OTP session" });
+    }
+
+    if (
+      payload?.purpose !== "email-otp-challenge" ||
+      payload.email !== email ||
+      payload.otpHash !== hashValue(otp)
+    ) {
+      return res.status(400).json({ message: "Invalid email OTP" });
+    }
+
+    clearEmailVerificationChallenge(email);
+
+    return res.status(200).json({
+      message: "Email verified successfully",
+      email,
+      verifiedEmailToken: createVerifiedEmailToken(email),
+    });
+  } catch (error) {
+    console.error("Failed to verify registration email OTP:", error);
+    return res.status(500).json({ message: "Failed to verify email OTP" });
+  }
+};
+
+const sendEmailVerificationOtp = async (req, res) => {
+  try {
+    const user = req.user;
+    const email = normalizeEmail(user?.email);
+
+    if (!user || !email) {
+      return res.status(401).json({ message: "Unauthorized user" });
+    }
+
+    if (user.isVerifiedEmail) {
+      return res.status(400).json({ message: "Email is already verified" });
+    }
+
+    const otp = generateEmailOtp();
+    setEmailVerificationChallenge({
+      email,
+      otpHash: hashValue(otp),
+      userId: String(user._id),
+    });
+
+    const emailSent = await sendEmail(
+      email,
+      "Verify Your Email",
+      emailVerificationOtp({ firstName: user.firstName, otp })
+    );
+
+    if (!emailSent) {
+      return res.status(500).json({ message: "Failed to send email OTP" });
+    }
+
+    return res.status(200).json({
+      message: "Email OTP sent successfully",
+      email,
+    });
+  } catch (error) {
+    console.error("Failed to send email verification OTP:", error);
+    return res.status(500).json({ message: "Failed to send email OTP" });
+  }
+};
+
+const verifyEmailOtp = async (req, res) => {
+  try {
+    const user = req.user;
+    const email = normalizeEmail(user?.email);
+    const otp = String(req.body.otp || "").trim();
+
+    if (!user || !email) {
+      return res.status(401).json({ message: "Unauthorized user" });
+    }
+
+    if (!otp) {
+      return res.status(400).json({ message: "OTP is required" });
+    }
+
+    const challenge = getEmailVerificationChallenge(email);
+
+    if (!challenge || challenge.userId !== String(user._id)) {
+      return res.status(400).json({ message: "Invalid or expired email OTP session" });
+    }
+
+    if (challenge.otpHash !== hashValue(otp)) {
+      return res.status(400).json({ message: "Invalid email OTP" });
+    }
+
+    clearEmailVerificationChallenge(email);
+    user.isVerifiedEmail = true;
+    await user.save();
+
+    return res.status(200).json({
+      message: "Email verified successfully",
+      user: user.toJSON(),
+    });
+  } catch (error) {
+    console.error("Failed to verify email OTP:", error);
+    return res.status(500).json({ message: "Failed to verify email OTP" });
+  }
+};
+
 const registerUser = async (req, res) => {
   try {
     ensureJwtConfigured();
@@ -44,18 +268,21 @@ const registerUser = async (req, res) => {
       designation,
       password,
       role,
+      verifiedEmailToken,
     } = req.body;
 
     if (!firstName || !lastName || !phoneNumber || !email || !password || !role) {
       return res.status(400).json({ message: "Missing required fields" });
     }
 
+    const normalizedEmail = normalizeEmail(email);
+
     // check a valid email or not 
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    if (!normalizedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
       return res.status(400).json({ message: "Valid email is required" });
     }
 
-    const existing = await User.findOne({ email });
+    const existing = await User.findOne({ email: normalizedEmail });
     if (existing) {
       return res.status(409).json({ message: "Email already registered" });
     }
@@ -68,16 +295,20 @@ const registerUser = async (req, res) => {
     if(!USER_ROLES.includes(role)){
       return res.status(400).json({ message: "Invalid role" });
     }
+
+    const isVerifiedEmail = hasVerifiedEmailToken(normalizedEmail, verifiedEmailToken);
+
     const user = await User.create({
       firstName,
       lastName,
       phoneNumber,
-      email,
+      email: normalizedEmail,
       address,
       designation,
       userImage: uploadedImage?.imageUrl,
       userImagePublicId: uploadedImage?.imagePublicId,
       password,
+      isVerifiedEmail,
       role,
     });
 
@@ -89,8 +320,7 @@ const registerUser = async (req, res) => {
     )
 
     // const token = generateToken(user._id);
-    const token = generateToken(user._id, user.tokenVersion);
-    return res.status(201).json({ user, token });
+    return issueUserSession(res, user, 201);
   } catch (error) {
     console.error("Failed to register user:", error);
     return res.status(500).json({ message: "Failed to register user" });
@@ -101,7 +331,8 @@ const authenticateUser = async (req, res, { adminOnly = false } = {}) => {
   try {
     ensureJwtConfigured();
 
-    const { email, password } = req.body;
+    const email = normalizeEmail(req.body.email);
+    const { password } = req.body;
     // console.log("dfvnfvk",email,password);
     if (!email || !password) {
       return res.status(400).json({ message: "Email and password are required" });
@@ -138,6 +369,88 @@ const loginUser = async (req, res) => authenticateUser(req, res);
 
 const loginAdminUser = async (req, res) =>
   authenticateUser(req, res, { adminOnly: true });
+
+const loginWithOtp = async (req, res) => {
+  try {
+    ensureJwtConfigured();
+
+    const { idToken } = req.body;
+
+    if (!idToken) {
+      return res.status(400).json({ message: "OTP session token is required" });
+    }
+
+    const { phoneNumber } = await verifyFirebasePhoneIdToken(idToken);
+    const user = await User.findOne({ phoneNumber });
+
+    if (!user) {
+      return res.status(404).json({
+        message: "User not found for this phone number. Please register first.",
+      });
+    }
+
+    return issueUserSession(res, user);
+  } catch (error) {
+    console.error("Failed to login with OTP:", error);
+    return res.status(500).json({
+      message: error.message || "Failed to login with OTP",
+    });
+  }
+};
+
+const registerWithOtp = async (req, res) => {
+  try {
+    ensureJwtConfigured();
+
+    const { idToken, firstName, lastName, email, address } = req.body;
+
+    if (!idToken || !firstName || !lastName || !email) {
+      return res.status(400).json({
+        message: "OTP session token, firstName, lastName and email are required",
+      });
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ message: "Valid email is required" });
+    }
+
+    const { phoneNumber } = await verifyFirebasePhoneIdToken(idToken);
+
+    const existingByPhone = await User.findOne({ phoneNumber });
+    if (existingByPhone) {
+      return res.status(409).json({
+        message: "Phone number already registered. Please login with OTP.",
+      });
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+    const existingByEmail = await User.findOne({ email: normalizedEmail });
+    if (existingByEmail) {
+      return res.status(409).json({ message: "Email already registered" });
+    }
+
+    const generatedPassword = crypto.randomBytes(24).toString("hex");
+    const user = await User.create({
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      phoneNumber,
+      email: normalizedEmail,
+      address: typeof address === "string" ? address.trim() : "",
+      password: generatedPassword,
+      isVerifiedEmail: false,
+      role: "normal",
+    });
+
+    sendEmail(user.email, "Registration Success", registrationSuccess(user));
+
+    return issueUserSession(res, user, 201, { isNewUser: true });
+  } catch (error) {
+    console.error("Failed to register with OTP:", error);
+    return res.status(500).json({
+      message: error.message || "Failed to register with OTP",
+    });
+  }
+};
 
 const getUsers = async (_req, res) => {
   try {
@@ -192,12 +505,18 @@ const updateUser = async (req, res) => {
       user.role = req.body.role;
     }
 
+    const previousEmail = normalizeEmail(user.email);
+
     user.firstName = req.body.firstName || user.firstName;
     user.lastName = req.body.lastName || user.lastName;
     user.phoneNumber = req.body.phoneNumber || user.phoneNumber;
-    user.email = req.body.email || user.email;
+    user.email = normalizeEmail(req.body.email) || user.email;
     user.address = req.body.address || user.address;
     user.designation = req.body.designation || user.designation;
+
+    if (normalizeEmail(user.email) !== previousEmail) {
+      user.isVerifiedEmail = false;
+    }
 
     await user.save();
     const safeUser = user.toJSON();
@@ -209,9 +528,15 @@ const updateUser = async (req, res) => {
 };
 
 module.exports = {
+  sendRegistrationEmailOtp,
+  verifyRegistrationEmailOtp,
+  sendEmailVerificationOtp,
+  verifyEmailOtp,
   registerUser,
   loginUser,
   loginAdminUser,
+  loginWithOtp,
+  registerWithOtp,
   getUsers,
   getUserById,
   updateUser,
