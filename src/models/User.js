@@ -1,9 +1,7 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
+const { USER_ROLES } = require("../constants/userRoles");
 
-// selected role
-
-const role  = ["admin", "superadmin", "administrator"];
 const userSchema = new mongoose.Schema(
   {
     firstName: { type: String, required: true, trim: true },
@@ -16,7 +14,7 @@ const userSchema = new mongoose.Schema(
     userImagePublicId: { type: String, trim: true },
     password: { type: String, required: true, minlength: 6 },
     tokenVersion : { type: Number, default: 0 },
-    role: { type: String, required: true, enum: role, default: "administrator" },
+    role: { type: String, required: true, enum: USER_ROLES, default: "normal" },
   },
   { timestamps: true }
   

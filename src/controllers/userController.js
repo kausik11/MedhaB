@@ -1,12 +1,11 @@
 const jwt = require("jsonwebtoken");
-const bcrypt = require("bcryptjs");
 const cloudinary = require("../config/cloudinary");
 const User = require("../models/User");
+const { ADMIN_PANEL_ROLES, USER_ROLES } = require("../constants/userRoles");
 const sendEmail = require("../utils/sendEmail");
 const registrationSuccess = require("../utils/registrationSuccess")
 
 const { JWT_SECRET } = process.env;
-const validrole  = ["admin", "superadmin", "administrator"];
 
 const ensureJwtConfigured = () => {
   if (!JWT_SECRET) {
@@ -66,7 +65,7 @@ const registerUser = async (req, res) => {
       uploadedImage = await uploadUserImage(req.file);
     }
 
-    if(!validrole.includes(role)){
+    if(!USER_ROLES.includes(role)){
       return res.status(400).json({ message: "Invalid role" });
     }
     const user = await User.create({
@@ -116,6 +115,12 @@ const loginUser = async (req, res) => {
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
       return res.status(401).json({ message: "Invalid credentials" });
+    }
+
+    if (!ADMIN_PANEL_ROLES.includes(user.role)) {
+      return res.status(403).json({
+        message: "Only superadmin and administrator can login to the admin panel",
+      });
     }
  
     user.tokenVersion += 1;
@@ -176,7 +181,7 @@ const updateUser = async (req, res) => {
     }
 
     if (req.body.role) {
-      if(!validrole.includes(req.body.role)){
+      if(!USER_ROLES.includes(req.body.role)){
         return res.status(400).json({ message: "Invalid role" });
       }
       user.role = req.body.role;
