@@ -10,7 +10,7 @@ const authMiddleware = require("../middlewares/authMiddleware");
 
 const router = express.Router();
 
-// router.use(authMiddleware);
+router.use(authMiddleware);
 
 router.get("/", getAddresses);
 router.get("/:id", getAddressById);

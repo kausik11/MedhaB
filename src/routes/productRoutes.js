@@ -17,12 +17,7 @@ const productUploads = upload.fields([{ name: "images", maxCount: 5 }]);
 router.get("/", getProducts);
 router.get("/slug/:slug", getProductBySlug);
 router.get("/:id", getProductById);
-// router.post("/", authMiddleware, productUploads, createProduct);
-// router.put("/:id", authMiddleware, productUploads, updateProduct);
-// router.delete("/:id", authMiddleware, deleteProduct);
-
-// as of now we are removing the auth middleware
-router.post("/", productUploads, createProduct);
-router.put("/:id", productUploads, updateProduct);
-router.delete("/:id", deleteProduct);
+router.post("/", authMiddleware, productUploads, createProduct);
+router.put("/:id", authMiddleware, productUploads, updateProduct);
+router.delete("/:id", authMiddleware, deleteProduct);
 module.exports = router;

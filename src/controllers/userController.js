@@ -119,7 +119,7 @@ const loginUser = async (req, res) => {
 
     if (!ADMIN_PANEL_ROLES.includes(user.role)) {
       return res.status(403).json({
-        message: "Only superadmin and administrator can login to the admin panel",
+        message: "You don't have permission to access admin panel",
       });
     }
  
