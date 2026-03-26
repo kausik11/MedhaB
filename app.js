@@ -20,6 +20,7 @@ const productRoutes = require("./src/routes/productRoutes");
 const productCategoryRoutes = require("./src/routes/productCategoryRoutes");
 const offerRoutes = require("./src/routes/offerRoutes");
 const orderRoutes = require("./src/routes/orderRoutes");
+const cartRoutes = require("./src/routes/cartRoutes");
 const pricingRoutes = require("./src/routes/pricingRoutes");
 const authMiddleware = require("./src/middlewares/authMiddleware");
 const globalErrorHandler = require("./src/middlewares/globalErrorHandler");
@@ -187,6 +188,8 @@ app.use("/api/offers", offerRoutes);
 app.use("/api/products", productRoutes);
 // Orders
 app.use("/api/orders", orderRoutes);
+// Authenticated user cart
+app.use("/api/cart", cartRoutes);
 // Authenticated user delivery addresses
 app.use("/api/addresses", addressRoutes);
 

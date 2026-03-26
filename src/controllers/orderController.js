@@ -3,6 +3,7 @@ const Order = require("../models/Order");
 const Product = require("../models/Product");
 const Address = require("../models/Address");
 const Offer = require("../models/Offer");
+const Cart = require("../models/Cart");
 const User = require("../models/User");
 const { normalizePromoCode } = require("../models/Offer");
 const { ADMIN_PANEL_ROLES } = require("../constants/userRoles");
@@ -319,6 +320,35 @@ const buildOrderPayload = async (body = {}, existingOrder, requestUserId) => {
   };
 };
 
+const removeOrderedItemsFromCart = async (userId, orderItems = []) => {
+  if (!userId || !isNonEmptyArray(orderItems)) {
+    return;
+  }
+
+  const productIds = [
+    ...new Set(orderItems.map((item) => item?.productId).filter(Boolean)),
+  ];
+  if (productIds.length === 0) {
+    return;
+  }
+
+  const updatedCart = await Cart.findOneAndUpdate(
+    { user: userId },
+    {
+      $pull: {
+        items: {
+          product: { $in: productIds },
+        },
+      },
+    },
+    { new: true }
+  );
+
+  if (updatedCart && updatedCart.items.length === 0) {
+    await updatedCart.deleteOne();
+  }
+};
+
 const getOrders = async (_req, res) => {
   try {
     const query = isAdminRequest(_req) ? {} : { user: _req.userId };
@@ -426,12 +456,28 @@ const createOrder = async (req, res) => {
       },
     ]);
 
-    if (req.user?.email) {
-      await sendEmail(
-        req.user.email,
-        `Order placed: ${order.orderId}`,
-        orderPlacedSuccess({ user: req.user, order })
+    try {
+      await removeOrderedItemsFromCart(req.userId, payload.orderItems);
+    } catch (cartCleanupError) {
+      console.error(
+        "Failed to clean up cart after order creation:",
+        cartCleanupError
       );
+    }
+
+    if (req.user?.email) {
+      try {
+        await sendEmail(
+          req.user.email,
+          `Order placed: ${order.orderId}`,
+          orderPlacedSuccess({ user: req.user, order })
+        );
+      } catch (emailError) {
+        console.error(
+          "Failed to send order confirmation email:",
+          emailError
+        );
+      }
     }
 
     return res.status(201).json(order);
