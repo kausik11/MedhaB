@@ -3,6 +3,8 @@ const Product = require("../models/Product");
 const ProductCategory = require("../models/ProductCategory");
 const cloudinary = require("../config/cloudinary");
 const slugify = require("../utils/slugify");
+const { ADMIN_PANEL_ROLES } = require("../constants/userRoles");
+const { PRODUCT_PUBLICATION_STATUSES } = require("../models/Product");
 
 const PRODUCT_TYPES = ["vitamin", "enzyme", "booster"];
 const PRODUCT_QUANTITIES = [60, 90, 120];
@@ -68,6 +70,17 @@ const parseBoolean = (value) => {
   if (["true", "1", "yes"].includes(normalizedValue)) return true;
   if (["false", "0", "no"].includes(normalizedValue)) return false;
   return undefined;
+};
+
+const parsePublicationStatus = (value) => {
+  if (value == null || value === "") return undefined;
+
+  const normalizedValue = `${value}`.trim().toLowerCase();
+  if (PRODUCT_PUBLICATION_STATUSES.includes(normalizedValue)) {
+    return normalizedValue;
+  }
+
+  return null;
 };
 
 const parseQuantity = (value) => {
@@ -398,6 +411,8 @@ const handlePersistenceError = (res, error, fallbackMessage) => {
   return res.status(500).json({ message: fallbackMessage });
 };
 
+const isAdminRequest = (req) => ADMIN_PANEL_ROLES.includes(req.userRole);
+
 const ensureUniqueSlug = async (rawSlug, excludeId) => {
   const baseSlug = slugify(rawSlug || "product");
   const slugRoot = baseSlug || "product";
@@ -534,6 +549,34 @@ const buildProductPayload = async (body = {}, { existingProduct } = {}) => {
     }
   }
 
+  if (
+    hasOwn(body, "publicationStatus") ||
+    hasOwn(body, "status") ||
+    hasOwn(body, "isDraft")
+  ) {
+    if (hasOwn(body, "isDraft")) {
+      const isDraft = parseBoolean(body.isDraft);
+
+      if (isDraft === undefined) {
+        return {
+          error: "isDraft must be true or false.",
+        };
+      }
+
+      payload.publicationStatus = isDraft ? "draft" : "published";
+    } else {
+      payload.publicationStatus = parsePublicationStatus(
+        body.publicationStatus ?? body.status
+      );
+
+      if (payload.publicationStatus == null) {
+        return {
+          error: `publicationStatus must be one of: ${PRODUCT_PUBLICATION_STATUSES.join(", ")}.`,
+        };
+      }
+    }
+  }
+
   const nextTitle = payload.title ?? existingProduct?.title ?? normalizeText(body.title);
   if (hasOwn(body, "slug") || hasOwn(body, "title") || (!existingProduct && nextTitle)) {
     payload.slug = await ensureUniqueSlug(
@@ -594,6 +637,10 @@ const buildProductPayload = async (body = {}, { existingProduct } = {}) => {
     payload.nonVegetarianSupplement = false;
   }
 
+  if (payload.publicationStatus === undefined && !existingProduct) {
+    payload.publicationStatus = "published";
+  }
+
   return { payload };
 };
 
@@ -639,8 +686,9 @@ const assignProductFields = (product, payload) => {
 
 const getProducts = async (req, res) => {
   try {
-    const { type, category, tag, q } = req.query;
+    const { type, category, tag, q, publicationStatus, status } = req.query;
     const filter = {};
+    const adminRequest = isAdminRequest(req);
 
     if (type) {
       filter.type = `${type}`.trim().toLowerCase();
@@ -669,6 +717,24 @@ const getProducts = async (req, res) => {
       ];
     }
 
+    if (adminRequest) {
+      const parsedPublicationStatus = parsePublicationStatus(
+        publicationStatus ?? status
+      );
+
+      if (parsedPublicationStatus === null) {
+        return res.status(400).json({
+          message: `publicationStatus must be one of: ${PRODUCT_PUBLICATION_STATUSES.join(", ")}.`,
+        });
+      }
+
+      if (parsedPublicationStatus) {
+        filter.publicationStatus = parsedPublicationStatus;
+      }
+    } else {
+      filter.publicationStatus = "published";
+    }
+
     const products = await Product.find(filter)
       .populate("category")
       .sort({ createdAt: -1 });
@@ -681,7 +747,10 @@ const getProducts = async (req, res) => {
 
 const getProductById = async (req, res) => {
   try {
-    const product = await Product.findById(req.params.id).populate("category");
+    const query = isAdminRequest(req)
+      ? { _id: req.params.id }
+      : { _id: req.params.id, publicationStatus: "published" };
+    const product = await Product.findOne(query).populate("category");
 
     if (!product) {
       return res.status(404).json({ message: "Product not found" });
@@ -696,7 +765,10 @@ const getProductById = async (req, res) => {
 
 const getProductBySlug = async (req, res) => {
   try {
-    const product = await Product.findOne({ slug: req.params.slug }).populate("category");
+    const query = isAdminRequest(req)
+      ? { slug: req.params.slug }
+      : { slug: req.params.slug, publicationStatus: "published" };
+    const product = await Product.findOne(query).populate("category");
 
     if (!product) {
       return res.status(404).json({ message: "Product not found" });
@@ -787,6 +859,38 @@ const updateProduct = async (req, res) => {
   }
 };
 
+const updateProductPublicationStatus = async (req, res) => {
+  try {
+    const product = await Product.findById(req.params.id);
+
+    if (!product) {
+      return res.status(404).json({ message: "Product not found" });
+    }
+
+    const nextPublicationStatus = parsePublicationStatus(
+      req.body?.publicationStatus ?? req.body?.status
+    );
+
+    if (!nextPublicationStatus) {
+      return res.status(400).json({
+        message: `publicationStatus must be one of: ${PRODUCT_PUBLICATION_STATUSES.join(", ")}.`,
+      });
+    }
+
+    product.publicationStatus = nextPublicationStatus;
+    await product.save();
+    await product.populate("category");
+
+    return res.status(200).json(product);
+  } catch (error) {
+    return handlePersistenceError(
+      res,
+      error,
+      "Failed to update product publication status"
+    );
+  }
+};
+
 const deleteProduct = async (req, res) => {
   try {
     const product = await Product.findById(req.params.id);
@@ -795,13 +899,16 @@ const deleteProduct = async (req, res) => {
       return res.status(404).json({ message: "Product not found" });
     }
 
-    await deleteImages(product.images);
-    await product.deleteOne();
+    product.publicationStatus = "draft";
+    await product.save();
 
-    res.status(200).json({ message: "Product deleted" });
+    res.status(200).json({
+      message: "Product moved to draft successfully",
+      product,
+    });
   } catch (error) {
-    console.error("Failed to delete product:", error);
-    res.status(500).json({ message: "Failed to delete product" });
+    console.error("Failed to move product to draft:", error);
+    res.status(500).json({ message: "Failed to move product to draft" });
   }
 };
 
@@ -811,5 +918,6 @@ module.exports = {
   getProductBySlug,
   createProduct,
   updateProduct,
+  updateProductPublicationStatus,
   deleteProduct,
 };

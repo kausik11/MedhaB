@@ -101,6 +101,8 @@ const removeLegacyPriceFields = (_doc, ret) => {
   return ret;
 };
 
+const PRODUCT_PUBLICATION_STATUSES = ["draft", "published"];
+
 const productSchema = new mongoose.Schema(
   {
     title: {
@@ -250,6 +252,12 @@ const productSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    publicationStatus: {
+      type: String,
+      enum: PRODUCT_PUBLICATION_STATUSES,
+      default: "published",
+      index: true,
+    },
   },
   { timestamps: true }
 );
@@ -291,3 +299,4 @@ productSchema.set("toObject", {
 });
 
 module.exports = mongoose.model("Product", productSchema);
+module.exports.PRODUCT_PUBLICATION_STATUSES = PRODUCT_PUBLICATION_STATUSES;
