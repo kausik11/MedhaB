@@ -6,6 +6,7 @@ const { ADMIN_PANEL_ROLES, USER_ROLES } = require("../constants/userRoles");
 const sendEmail = require("../utils/sendEmail");
 const registrationSuccess = require("../utils/registrationSuccess");
 const emailVerificationOtp = require("../utils/emailVerificationOtp");
+const forgotPasswordOtp = require("../utils/forgotPasswordOtp");
 const {
   setEmailVerificationChallenge,
   getEmailVerificationChallenge,
@@ -47,6 +48,19 @@ const createEmailOtpChallengeToken = (email, otp) => {
   );
 };
 
+const createPasswordResetOtpChallengeToken = (email, otp) => {
+  ensureJwtConfigured();
+  return jwt.sign(
+    {
+      purpose: "password-reset-otp-challenge",
+      email,
+      otpHash: hashValue(otp),
+    },
+    JWT_SECRET,
+    { expiresIn: "10m" }
+  );
+};
+
 const createVerifiedEmailToken = (email) => {
   ensureJwtConfigured();
   return jwt.sign(
@@ -56,6 +70,20 @@ const createVerifiedEmailToken = (email) => {
     },
     JWT_SECRET,
     { expiresIn: "1h" }
+  );
+};
+
+const createPasswordResetToken = ({ email, userId, tokenVersion }) => {
+  ensureJwtConfigured();
+  return jwt.sign(
+    {
+      purpose: "password-reset",
+      email,
+      userId,
+      tokenVersion,
+    },
+    JWT_SECRET,
+    { expiresIn: "15m" }
   );
 };
 
@@ -252,6 +280,175 @@ const verifyEmailOtp = async (req, res) => {
   } catch (error) {
     console.error("Failed to verify email OTP:", error);
     return res.status(500).json({ message: "Failed to verify email OTP" });
+  }
+};
+
+const sendForgotPasswordOtp = async (req, res) => {
+  try {
+    ensureJwtConfigured();
+
+    const email = normalizeEmail(req.body.email);
+
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ message: "Valid email is required" });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const otp = generateEmailOtp();
+    setEmailVerificationChallenge({
+      email,
+      otpHash: hashValue(otp),
+      userId: String(user._id),
+      purpose: "forgot-password",
+    });
+
+    const passwordResetOtpToken = createPasswordResetOtpChallengeToken(
+      email,
+      otp
+    );
+    const emailSent = await sendEmail(
+      email,
+      "Reset Your Password",
+      forgotPasswordOtp({ firstName: user.firstName, otp })
+    );
+
+    if (!emailSent) {
+      clearEmailVerificationChallenge(email, "forgot-password");
+      return res.status(500).json({ message: "Failed to send password reset OTP" });
+    }
+
+    return res.status(200).json({
+      message: "Password reset OTP sent successfully",
+      email,
+      passwordResetOtpToken,
+    });
+  } catch (error) {
+    console.error("Failed to send forgot password OTP:", error);
+    return res.status(500).json({ message: "Failed to send password reset OTP" });
+  }
+};
+
+const verifyForgotPasswordOtp = async (req, res) => {
+  try {
+    ensureJwtConfigured();
+
+    const email = normalizeEmail(req.body.email);
+    const otp = String(req.body.otp || "").trim();
+    const passwordResetOtpToken = req.body.passwordResetOtpToken;
+
+    if (!email || !otp || !passwordResetOtpToken) {
+      return res.status(400).json({
+        message: "Email, OTP and password reset OTP token are required",
+      });
+    }
+
+    let payload;
+    try {
+      payload = jwt.verify(passwordResetOtpToken, JWT_SECRET);
+    } catch {
+      return res.status(400).json({
+        message: "Invalid or expired password reset OTP session",
+      });
+    }
+
+    const challenge = getEmailVerificationChallenge(email, "forgot-password");
+
+    if (
+      !challenge ||
+      payload?.purpose !== "password-reset-otp-challenge" ||
+      payload.email !== email ||
+      payload.otpHash !== hashValue(otp) ||
+      challenge.otpHash !== hashValue(otp)
+    ) {
+      return res.status(400).json({ message: "Invalid password reset OTP" });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user || challenge.userId !== String(user._id)) {
+      return res.status(400).json({
+        message: "Invalid or expired password reset OTP session",
+      });
+    }
+
+    clearEmailVerificationChallenge(email, "forgot-password");
+
+    return res.status(200).json({
+      message: "Password reset OTP verified successfully",
+      email,
+      passwordResetToken: createPasswordResetToken({
+        email,
+        userId: String(user._id),
+        tokenVersion: user.tokenVersion,
+      }),
+    });
+  } catch (error) {
+    console.error("Failed to verify forgot password OTP:", error);
+    return res.status(500).json({ message: "Failed to verify password reset OTP" });
+  }
+};
+
+const resetForgotPassword = async (req, res) => {
+  try {
+    ensureJwtConfigured();
+
+    const email = normalizeEmail(req.body.email);
+    const newPassword = String(req.body.newPassword || "");
+    const passwordResetToken = req.body.passwordResetToken;
+
+    if (!email || !newPassword || !passwordResetToken) {
+      return res.status(400).json({
+        message: "Email, newPassword and password reset token are required",
+      });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        message: "Password must be at least 6 characters long",
+      });
+    }
+
+    let payload;
+    try {
+      payload = jwt.verify(passwordResetToken, JWT_SECRET);
+    } catch {
+      return res.status(400).json({
+        message: "Invalid or expired password reset token",
+      });
+    }
+
+    if (
+      payload?.purpose !== "password-reset" ||
+      payload.email !== email ||
+      !payload.userId
+    ) {
+      return res.status(400).json({ message: "Invalid password reset token" });
+    }
+
+    const user = await User.findOne({ _id: payload.userId, email });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (user.tokenVersion !== payload.tokenVersion) {
+      return res.status(400).json({ message: "Password reset token expired" });
+    }
+
+    user.password = newPassword;
+    user.tokenVersion += 1;
+    await user.save();
+
+    clearEmailVerificationChallenge(email, "forgot-password");
+
+    return res.status(200).json({
+      message: "Password reset successfully",
+    });
+  } catch (error) {
+    console.error("Failed to reset forgotten password:", error);
+    return res.status(500).json({ message: "Failed to reset password" });
   }
 };
 
@@ -532,6 +729,9 @@ module.exports = {
   verifyRegistrationEmailOtp,
   sendEmailVerificationOtp,
   verifyEmailOtp,
+  sendForgotPasswordOtp,
+  verifyForgotPasswordOtp,
+  resetForgotPassword,
   registerUser,
   loginUser,
   loginAdminUser,

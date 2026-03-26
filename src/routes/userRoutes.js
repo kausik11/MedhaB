@@ -5,6 +5,9 @@ const {
   verifyRegistrationEmailOtp,
   sendEmailVerificationOtp,
   verifyEmailOtp,
+  sendForgotPasswordOtp,
+  verifyForgotPasswordOtp,
+  resetForgotPassword,
   registerUser,
   loginUser,
   loginAdminUser,
@@ -24,6 +27,9 @@ router.post("/send-registration-email-otp", sendRegistrationEmailOtp);
 router.post("/verify-registration-email-otp", verifyRegistrationEmailOtp);
 router.post("/send-email-verification-otp", authMiddleware, sendEmailVerificationOtp);
 router.post("/verify-email-otp", authMiddleware, verifyEmailOtp);
+router.post("/forgot-password/send-otp", sendForgotPasswordOtp);
+router.post("/forgot-password/verify-otp", verifyForgotPasswordOtp);
+router.post("/forgot-password/reset-password", resetForgotPassword);
 router.post("/register", upload.single("userImage"), registerUser);
 router.post("/login", loginUser);
 router.post("/admin-login", loginAdminUser);
