@@ -7,9 +7,11 @@ const {
   deleteSubscription,
 } = require("../controllers/newsletterController");
 
+const verifyRecaptcha = require("../middlewares/recaptchaMiddleware");
+
 const router = express.Router();
 
-router.post("/", createSubscription);
+router.post("/", verifyRecaptcha, createSubscription);
 router.get("/", listSubscriptions);
 router.get("/:id", getSubscription);
 router.put("/:id", updateSubscription);

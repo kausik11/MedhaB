@@ -7,13 +7,14 @@ const {
   deleteContact,
 } = require("../controllers/contactUsController");
 const adminMiddleware = require("../middlewares/adminMiddleware");
+const verifyRecaptcha = require("../middlewares/recaptchaMiddleware");
 
 const router = express.Router();
 
 // Public
 router.get("/", getContacts);
 router.get("/:id", getContactById);
-router.post("/", createContact);
+router.post("/", verifyRecaptcha, createContact);
 
 // Protected
 router.put("/:id", adminMiddleware, updateContact);

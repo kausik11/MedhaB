@@ -6,9 +6,11 @@ const {
   getCallback,
 } = require("../controllers/callbackController");
 
+const verifyRecaptcha = require("../middlewares/recaptchaMiddleware");
+
 const router = express.Router();
 
-router.post("/", createCallback);
+router.post("/", verifyRecaptcha, createCallback);
 router.put("/:id", updateCallback);
 router.get("/", listCallbacks);
 router.get("/:id", getCallback);
