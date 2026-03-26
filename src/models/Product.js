@@ -246,6 +246,10 @@ const productSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    mostBought: {
+      type: Boolean,
+      default: false,
+    },
   },
   { timestamps: true }
 );
