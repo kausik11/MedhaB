@@ -1,6 +1,11 @@
 const mongoose = require("mongoose");
 const Cart = require("../models/Cart");
 const Product = require("../models/Product");
+const {
+  calculateVariantPricing,
+  isSupportedProductQuantity,
+  parseProductQuantity,
+} = require("../utils/productPricing");
 
 const isValidObjectId = (value) => mongoose.Types.ObjectId.isValid(value);
 
@@ -8,6 +13,19 @@ const parseQuantity = (value) => {
   const parsedValue = Number(value);
 
   if (!Number.isInteger(parsedValue) || parsedValue <= 0) {
+    return NaN;
+  }
+
+  return parsedValue;
+};
+
+const parseSelectedQuantity = (value, fallbackQuantity) => {
+  if (value == null || value === "") {
+    return fallbackQuantity;
+  }
+
+  const parsedValue = parseProductQuantity(value);
+  if (Number.isNaN(parsedValue)) {
     return NaN;
   }
 
@@ -45,11 +63,12 @@ const serializeCart = (cart, userId) => {
   const items = (cart.items || []).map((item) => {
     const product = item.product;
     const quantity = item.quantity || 0;
-    const unitPrice = Number(product?.actualPrice || 0);
-    const discountedUnitPrice =
-      typeof product?.discountPrice === "number"
-        ? product.discountPrice
-        : unitPrice;
+    const selectedQuantity = isSupportedProductQuantity(item.selectedQuantity)
+      ? item.selectedQuantity
+      : parseSelectedQuantity(undefined, product?.quantity);
+    const variantPricing = calculateVariantPricing(product, selectedQuantity);
+    const unitPrice = variantPricing.actualPrice;
+    const discountedUnitPrice = variantPricing.currentPrice;
     const lineSubtotal = Number((unitPrice * quantity).toFixed(2));
     const lineTotal = Number((discountedUnitPrice * quantity).toFixed(2));
     const lineDiscount = Number((lineSubtotal - lineTotal).toFixed(2));
@@ -61,6 +80,8 @@ const serializeCart = (cart, userId) => {
     return {
       product,
       quantity,
+      selectedQuantity,
+      pricePerCapsule: variantPricing.pricePerCapsule,
       unitPrice,
       discountedUnitPrice,
       lineSubtotal,
@@ -96,6 +117,18 @@ const ensureProductExists = async (productId) => {
   return { product };
 };
 
+const normalizeLegacyCartItems = (cart) => {
+  if (!cart) {
+    return;
+  }
+
+  cart.items.forEach((item) => {
+    if (!isSupportedProductQuantity(item.selectedQuantity)) {
+      item.selectedQuantity = 60;
+    }
+  });
+};
+
 const getCart = async (req, res) => {
   try {
     const cart = await populateCartQuery(Cart.findOne({ user: req.userId }));
@@ -108,7 +141,7 @@ const getCart = async (req, res) => {
 
 const addCartItem = async (req, res) => {
   try {
-    const { productId, quantity = 1 } = req.body || {};
+    const { productId, quantity = 1, selectedQuantity: requestedSelectedQuantity } = req.body || {};
     const parsedQuantity = parseQuantity(quantity);
 
     if (Number.isNaN(parsedQuantity)) {
@@ -126,21 +159,39 @@ const addCartItem = async (req, res) => {
       return res.status(statusCode).json({ message: productError });
     }
 
+    const selectedQuantity = parseSelectedQuantity(
+      requestedSelectedQuantity,
+      product.quantity
+    );
+    if (!isSupportedProductQuantity(selectedQuantity)) {
+      return res.status(400).json({
+        message: "selectedQuantity must be one of 60, 90, or 120.",
+      });
+    }
+
     let cart = await Cart.findOne({ user: req.userId });
     if (!cart) {
       cart = new Cart({
         user: req.userId,
-        items: [{ product: product._id, quantity: parsedQuantity }],
+        items: [{ product: product._id, quantity: parsedQuantity, selectedQuantity }],
       });
     } else {
+      normalizeLegacyCartItems(cart);
+
       const existingItem = cart.items.find(
-        (item) => `${item.product}` === `${product._id}`
+        (item) =>
+          `${item.product}` === `${product._id}` &&
+          item.selectedQuantity === selectedQuantity
       );
 
       if (existingItem) {
         existingItem.quantity += parsedQuantity;
       } else {
-        cart.items.push({ product: product._id, quantity: parsedQuantity });
+        cart.items.push({
+          product: product._id,
+          quantity: parsedQuantity,
+          selectedQuantity,
+        });
       }
     }
 
@@ -161,6 +212,14 @@ const updateCartItem = async (req, res) => {
   try {
     const productId = `${req.params.productId || ""}`.trim();
     const parsedQuantity = parseQuantity(req.body?.quantity);
+    const currentSelectedQuantity = parseSelectedQuantity(
+      req.body?.selectedQuantity ?? req.query?.selectedQuantity,
+      undefined
+    );
+    const nextSelectedQuantity = parseSelectedQuantity(
+      req.body?.nextSelectedQuantity,
+      currentSelectedQuantity
+    );
 
     if (!productId || !isValidObjectId(productId)) {
       return res.status(400).json({ message: "Invalid product id" });
@@ -172,19 +231,55 @@ const updateCartItem = async (req, res) => {
       });
     }
 
+    if (
+      (currentSelectedQuantity !== undefined && !isSupportedProductQuantity(currentSelectedQuantity)) ||
+      (nextSelectedQuantity !== undefined && !isSupportedProductQuantity(nextSelectedQuantity))
+    ) {
+      return res.status(400).json({
+        message: "selectedQuantity must be one of 60, 90, or 120.",
+      });
+    }
+
     const cart = await Cart.findOne({ user: req.userId });
     if (!cart) {
       return res.status(404).json({ message: "Cart not found" });
     }
 
-    const existingItem = cart.items.find(
-      (item) => `${item.product}` === productId
-    );
+    normalizeLegacyCartItems(cart);
+
+    const matchingItems = cart.items.filter((item) => `${item.product}` === productId);
+    const existingItem =
+      currentSelectedQuantity === undefined
+        ? matchingItems.length === 1
+          ? matchingItems[0]
+          : null
+        : matchingItems.find((item) => item.selectedQuantity === currentSelectedQuantity);
+
     if (!existingItem) {
-      return res.status(404).json({ message: "Product not found in cart" });
+      return res.status(currentSelectedQuantity === undefined && matchingItems.length > 1 ? 400 : 404).json({
+        message:
+          currentSelectedQuantity === undefined && matchingItems.length > 1
+            ? "selectedQuantity is required when multiple pack sizes of the same product are in the cart."
+            : "Product not found in cart",
+      });
     }
 
     existingItem.quantity = parsedQuantity;
+    if (nextSelectedQuantity !== undefined) {
+      const conflictingItem = cart.items.find(
+        (item) =>
+          item !== existingItem &&
+          `${item.product}` === productId &&
+          item.selectedQuantity === nextSelectedQuantity
+      );
+
+      if (conflictingItem) {
+        conflictingItem.quantity += parsedQuantity;
+        cart.items = cart.items.filter((item) => item !== existingItem);
+      } else {
+        existingItem.selectedQuantity = nextSelectedQuantity;
+      }
+    }
     await cart.save();
     await cart.populate({
       path: "items.product",
@@ -201,9 +296,16 @@ const updateCartItem = async (req, res) => {
 const removeCartItem = async (req, res) => {
   try {
     const productId = `${req.params.productId || ""}`.trim();
+    const selectedQuantity = parseSelectedQuantity(req.query?.selectedQuantity, undefined);
 
     if (!productId || !isValidObjectId(productId)) {
       return res.status(400).json({ message: "Invalid product id" });
+    }
+
+    if (selectedQuantity !== undefined && !isSupportedProductQuantity(selectedQuantity)) {
+      return res.status(400).json({
+        message: "selectedQuantity must be one of 60, 90, or 120.",
+      });
     }
 
     const cart = await Cart.findOne({ user: req.userId });
@@ -211,8 +313,28 @@ const removeCartItem = async (req, res) => {
       return res.status(404).json({ message: "Cart not found" });
     }
 
+    normalizeLegacyCartItems(cart);
+
+    const matchingItems = cart.items.filter((item) => `${item.product}` === productId);
+    if (matchingItems.length > 1 && selectedQuantity === undefined) {
+      return res.status(400).json({
+        message:
+          "selectedQuantity is required when multiple pack sizes of the same product are in the cart.",
+      });
+    }
+
     const initialLength = cart.items.length;
-    cart.items = cart.items.filter((item) => `${item.product}` !== productId);
+    cart.items = cart.items.filter((item) => {
+      if (`${item.product}` !== productId) {
+        return true;
+      }
+
+      if (selectedQuantity === undefined) {
+        return false;
+      }
+
+      return item.selectedQuantity !== selectedQuantity;
+    });
 
     if (cart.items.length === initialLength) {
       return res.status(404).json({ message: "Product not found in cart" });

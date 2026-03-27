@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { PRODUCT_QUANTITY_OPTIONS } = require("../utils/productPricing");
 
 const cartItemSchema = new mongoose.Schema(
   {
@@ -11,6 +12,12 @@ const cartItemSchema = new mongoose.Schema(
       type: Number,
       required: true,
       min: 1,
+    },
+    selectedQuantity: {
+      type: Number,
+      required: true,
+      enum: PRODUCT_QUANTITY_OPTIONS,
+      default: PRODUCT_QUANTITY_OPTIONS[0],
     },
   },
   { _id: false }
@@ -31,8 +38,9 @@ const cartSchema = new mongoose.Schema(
       validate: {
         validator: (value) =>
           Array.isArray(value) &&
-          new Set(value.map((item) => `${item.product}`)).size === value.length,
-        message: "Duplicate products are not allowed in the cart.",
+          new Set(value.map((item) => `${item.product}:${item.selectedQuantity}`)).size ===
+            value.length,
+        message: "Duplicate product variants are not allowed in the cart.",
       },
     },
   },

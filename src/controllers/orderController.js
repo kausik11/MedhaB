@@ -10,6 +10,11 @@ const { ADMIN_PANEL_ROLES } = require("../constants/userRoles");
 const sendEmail = require("../utils/sendEmail");
 const orderPlacedSuccess = require("../utils/orderPlacedSuccess");
 const orderStatusUpdated = require("../utils/orderStatusUpdated");
+const {
+  calculateVariantPricing,
+  isSupportedProductQuantity,
+  parseProductQuantity,
+} = require("../utils/productPricing");
 
 const ORDER_STATUSES = [
   "pending",
@@ -42,6 +47,19 @@ const parsePositiveNumber = (value) => {
   if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
     return NaN;
   }
+  return parsedValue;
+};
+
+const parseSelectedQuantity = (value, fallbackQuantity) => {
+  if (value == null || value === "") {
+    return fallbackQuantity;
+  }
+
+  const parsedValue = parseProductQuantity(value);
+  if (Number.isNaN(parsedValue)) {
+    return NaN;
+  }
+
   return parsedValue;
 };
 
@@ -89,18 +107,23 @@ const getProductSnapshot = async (requestedItems = []) => {
   for (const item of requestedItems) {
     const product = productMap.get(`${item.productId}`);
     const quantity = parsePositiveNumber(item.quantity);
+    const selectedQuantity = parseSelectedQuantity(
+      item.selectedQuantity,
+      product.quantity
+    );
 
     if (Number.isNaN(quantity)) {
       return { error: "Each order item quantity must be a valid number greater than 0." };
     }
 
-    const price = Number(product.actualPrice || 0);
-    const effectiveUnitPrice =
-      typeof product.discountPrice === "number" ? product.discountPrice : price;
-    const productDiscountPercentage =
-      typeof product.discountPercentage === "number"
-        ? product.discountPercentage
-        : 0;
+    if (!isSupportedProductQuantity(selectedQuantity)) {
+      return { error: "Each order item selectedQuantity must be one of 60, 90, or 120." };
+    }
+
+    const variantPricing = calculateVariantPricing(product, selectedQuantity);
+    const price = variantPricing.actualPrice;
+    const effectiveUnitPrice = variantPricing.currentPrice;
+    const productDiscountPercentage = variantPricing.discountPercentage;
     const productDiscountAmount = Number(
       ((price - effectiveUnitPrice) * quantity).toFixed(2)
     );
@@ -108,11 +131,13 @@ const getProductSnapshot = async (requestedItems = []) => {
     normalizedItems.push({
       productId: product._id,
       quantity,
+      selectedQuantity,
       price,
       discount: productDiscountAmount,
       productDiscountPercentage,
       productDiscountAmount,
       finalPrice: Number((effectiveUnitPrice * quantity).toFixed(2)),
+      pricePerCapsule: variantPricing.pricePerCapsule,
       image: product.images?.[0]?.imageUrl || "",
       category: Array.isArray(product.category)
         ? product.category
@@ -167,11 +192,13 @@ const cloneExistingOrderItems = (items = []) =>
   items.map((item) => ({
     productId: item.productId,
     quantity: item.quantity,
+    selectedQuantity: item.selectedQuantity || 60,
     price: item.price,
     discount: item.discount,
     productDiscountPercentage: item.productDiscountPercentage || 0,
     productDiscountAmount: item.productDiscountAmount ?? item.discount ?? 0,
     finalPrice: item.finalPrice,
+    pricePerCapsule: item.pricePerCapsule ?? 0,
     image: item.image || "",
     category: item.category || "",
   }));

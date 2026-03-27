@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { PRODUCT_QUANTITY_OPTIONS } = require("../utils/productPricing");
 
 const ORDER_STATUSES = [
   "pending",
@@ -35,6 +36,12 @@ const orderItemSchema = new mongoose.Schema(
       required: true,
       min: 1,
     },
+    selectedQuantity: {
+      type: Number,
+      required: true,
+      enum: PRODUCT_QUANTITY_OPTIONS,
+      default: PRODUCT_QUANTITY_OPTIONS[0],
+    },
     price: {
       type: Number,
       required: true,
@@ -60,6 +67,12 @@ const orderItemSchema = new mongoose.Schema(
       type: Number,
       required: true,
       min: 0,
+    },
+    pricePerCapsule: {
+      type: Number,
+      required: true,
+      min: 0,
+      default: 0,
     },
     image: {
       type: String,

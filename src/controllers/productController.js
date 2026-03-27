@@ -5,9 +5,13 @@ const cloudinary = require("../config/cloudinary");
 const slugify = require("../utils/slugify");
 const { ADMIN_PANEL_ROLES } = require("../constants/userRoles");
 const { PRODUCT_PUBLICATION_STATUSES } = require("../models/Product");
+const {
+  PRODUCT_QUANTITY_OPTIONS,
+  withVariantPricing,
+} = require("../utils/productPricing");
 
 const PRODUCT_TYPES = ["vitamin", "enzyme", "booster"];
-const PRODUCT_QUANTITIES = [60, 90, 120];
+const PRODUCT_QUANTITIES = PRODUCT_QUANTITY_OPTIONS;
 
 const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
 
@@ -686,7 +690,7 @@ const assignProductFields = (product, payload) => {
 
 const getProducts = async (req, res) => {
   try {
-    const { type, category, tag, q, publicationStatus, status } = req.query;
+    const { type, category, tag, q, publicationStatus, status, selectedQuantity } = req.query;
     const filter = {};
     const adminRequest = isAdminRequest(req);
 
@@ -738,7 +742,9 @@ const getProducts = async (req, res) => {
     const products = await Product.find(filter)
       .populate("category")
       .sort({ createdAt: -1 });
-    res.status(200).json(products);
+    res.status(200).json(
+      products.map((product) => withVariantPricing(product, parseQuantity(selectedQuantity)))
+    );
   } catch (error) {
     console.error("Failed to fetch products:", error);
     res.status(500).json({ message: "Failed to fetch products" });
@@ -756,7 +762,7 @@ const getProductById = async (req, res) => {
       return res.status(404).json({ message: "Product not found" });
     }
 
-    res.status(200).json(product);
+    res.status(200).json(withVariantPricing(product, parseQuantity(req.query?.selectedQuantity)));
   } catch (error) {
     console.error("Failed to fetch product:", error);
     res.status(500).json({ message: "Failed to fetch product" });
@@ -774,7 +780,7 @@ const getProductBySlug = async (req, res) => {
       return res.status(404).json({ message: "Product not found" });
     }
 
-    res.status(200).json(product);
+    res.status(200).json(withVariantPricing(product, parseQuantity(req.query?.selectedQuantity)));
   } catch (error) {
     console.error("Failed to fetch product by slug:", error);
     res.status(500).json({ message: "Failed to fetch product" });
@@ -809,7 +815,7 @@ const createProduct = async (req, res) => {
     await product.save();
 
     await product.populate("category");
-    res.status(201).json(product);
+    res.status(201).json(withVariantPricing(product));
   } catch (error) {
     return handlePersistenceError(res, error, "Failed to create product");
   }
@@ -853,7 +859,7 @@ const updateProduct = async (req, res) => {
 
     await product.save();
     await product.populate("category");
-    res.status(200).json(product);
+    res.status(200).json(withVariantPricing(product));
   } catch (error) {
     return handlePersistenceError(res, error, "Failed to update product");
   }
@@ -881,7 +887,7 @@ const updateProductPublicationStatus = async (req, res) => {
     await product.save();
     await product.populate("category");
 
-    return res.status(200).json(product);
+    return res.status(200).json(withVariantPricing(product));
   } catch (error) {
     return handlePersistenceError(
       res,
@@ -904,7 +910,7 @@ const deleteProduct = async (req, res) => {
 
     res.status(200).json({
       message: "Product moved to draft successfully",
-      product,
+      product: withVariantPricing(product),
     });
   } catch (error) {
     console.error("Failed to move product to draft:", error);
