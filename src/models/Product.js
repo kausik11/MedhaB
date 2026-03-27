@@ -62,7 +62,9 @@ const extraInfoSchema = new mongoose.Schema(
     },
     form: {
       type: String,
+      lowercase: true,
       trim: true,
+      enum: ["capsule", "tablet", "liquid"],
     },
   },
   { _id: false }
