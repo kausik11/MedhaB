@@ -151,6 +151,25 @@ const getProductSnapshot = async (requestedItems = []) => {
   return { items: normalizedItems };
 };
 
+const getRequestedItemsFromCart = async (userId) => {
+  if (!isValidObjectId(userId)) {
+    return { error: "Invalid user for cart checkout." };
+  }
+
+  const cart = await Cart.findOne({ user: userId });
+  if (!cart || !Array.isArray(cart.items) || cart.items.length === 0) {
+    return { error: "Cart is empty." };
+  }
+
+  return {
+    items: cart.items.map((item) => ({
+      productId: item.product,
+      quantity: item.quantity,
+      selectedQuantity: item.selectedQuantity,
+    })),
+  };
+};
+
 const validateAddressRefs = async ({
   shippingDetails,
   billingAddress,
@@ -287,7 +306,16 @@ const buildOrderPayload = async (body = {}, existingOrder, requestUserId) => {
 
   let items;
   if (!existingOrder || body.orderItems !== undefined) {
-    const requestedItems = body.orderItems ?? existingOrder?.orderItems;
+    let requestedItems = body.orderItems ?? existingOrder?.orderItems;
+
+    if (!existingOrder && requestedItems === undefined) {
+      const { items: cartItems, error: cartError } = await getRequestedItemsFromCart(requestUserId);
+      if (cartError) {
+        return { error: cartError };
+      }
+      requestedItems = cartItems;
+    }
+
     const { items: nextItems, error: itemsError } = await getProductSnapshot(requestedItems);
     if (itemsError) {
       return { error: itemsError };
@@ -352,10 +380,21 @@ const removeOrderedItemsFromCart = async (userId, orderItems = []) => {
     return;
   }
 
-  const productIds = [
-    ...new Set(orderItems.map((item) => item?.productId).filter(Boolean)),
+  const cartLineMatchers = [
+    ...new Map(
+      orderItems
+        .filter((item) => item?.productId)
+        .map((item) => [
+          `${item.productId}:${item.selectedQuantity || 60}`,
+          {
+            product: item.productId,
+            selectedQuantity: item.selectedQuantity || 60,
+          },
+        ])
+    ).values(),
   ];
-  if (productIds.length === 0) {
+
+  if (cartLineMatchers.length === 0) {
     return;
   }
 
@@ -363,9 +402,7 @@ const removeOrderedItemsFromCart = async (userId, orderItems = []) => {
     { user: userId },
     {
       $pull: {
-        items: {
-          product: { $in: productIds },
-        },
+        items: { $or: cartLineMatchers },
       },
     },
     { new: true }
