@@ -33,13 +33,15 @@ const parseSelectedQuantity = (value, fallbackQuantity) => {
 };
 
 const populateCartQuery = (query) =>
-  query.populate({
-    path: "items.product",
-    populate: {
-      path: "category",
-      select: "name normalizedName",
-    },
-  });
+  query
+    .populate("user", "firstName lastName email phoneNumber role")
+    .populate({
+      path: "items.product",
+      populate: {
+        path: "category",
+        select: "name normalizedName",
+      },
+    });
 
 const buildEmptyCartResponse = (userId) => ({
   user: userId,
@@ -136,6 +138,18 @@ const getCart = async (req, res) => {
   } catch (error) {
     console.error("Failed to fetch cart:", error);
     return res.status(500).json({ message: "Failed to fetch cart" });
+  }
+};
+
+const getAllCarts = async (_req, res) => {
+  try {
+    const carts = await populateCartQuery(Cart.find().sort({ updatedAt: -1 }));
+    return res.status(200).json(
+      carts.map((cart) => serializeCart(cart, cart.user?._id || cart.user))
+    );
+  } catch (error) {
+    console.error("Failed to fetch all carts:", error);
+    return res.status(500).json({ message: "Failed to fetch all carts" });
   }
 };
 
@@ -369,6 +383,7 @@ const clearCart = async (req, res) => {
 };
 
 module.exports = {
+  getAllCarts,
   getCart,
   addCartItem,
   updateCartItem,
