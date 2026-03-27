@@ -42,6 +42,14 @@ const toOptionalBoolean = (value) => {
   return undefined;
 };
 
+const parseBooleanFlag = (value) => {
+  if (typeof value === "boolean") return value;
+  if (value == null || value === "") return false;
+
+  const normalizedValue = `${value}`.trim().toLowerCase();
+  return ["true", "1", "yes"].includes(normalizedValue);
+};
+
 const parsePositiveNumber = (value) => {
   const parsedValue = Number(value);
   if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
@@ -65,6 +73,51 @@ const parseSelectedQuantity = (value, fallbackQuantity) => {
 
 const isValidObjectId = (value) => mongoose.Types.ObjectId.isValid(value);
 const isAdminRequest = (req) => ADMIN_PANEL_ROLES.includes(req.userRole);
+const withActiveOrderFilter = (query = {}) => ({
+  ...query,
+  isDeleted: { $ne: true },
+});
+
+const hasOwn = (source, key) =>
+  Object.prototype.hasOwnProperty.call(source || {}, key);
+
+const resolveRequestedOrderUser = async (req, body = {}) => {
+  const requestedUserId = `${body.userId || ""}`.trim();
+
+  if (!requestedUserId) {
+    return {
+      userId: req.userId,
+      user: req.user,
+    };
+  }
+
+  if (!isAdminRequest(req)) {
+    return {
+      status: 403,
+      error: "Only administrator and super admin users can create orders for another user.",
+    };
+  }
+
+  if (!isValidObjectId(requestedUserId)) {
+    return {
+      status: 400,
+      error: "userId must be a valid user id.",
+    };
+  }
+
+  const targetUser = await User.findById(requestedUserId);
+  if (!targetUser) {
+    return {
+      status: 404,
+      error: "Selected user not found.",
+    };
+  }
+
+  return {
+    userId: `${targetUser._id}`,
+    user: targetUser,
+  };
+};
 
 const populateOrderQuery = (query) =>
   query
@@ -340,7 +393,9 @@ const buildOrderPayload = async (body = {}, existingOrder, requestUserId) => {
     return { error: addressError };
   }
 
-  const paymentMethod = body.paymentMethod ?? existingOrder?.paymentMethod ?? "COD";
+  const paymentMethod = existingOrder
+    ? existingOrder.paymentMethod ?? "COD"
+    : body.paymentMethod ?? "COD";
   if (!PAYMENT_METHODS.includes(paymentMethod)) {
     return { error: `paymentMethod must be one of: ${PAYMENT_METHODS.join(", ")}` };
   }
@@ -352,7 +407,7 @@ const buildOrderPayload = async (body = {}, existingOrder, requestUserId) => {
 
   const promoFields = await resolvePromoFields({
     promoCode: body.promoCode,
-    bodyHasPromoCode: Object.prototype.hasOwnProperty.call(body, "promoCode"),
+    bodyHasPromoCode: !existingOrder && hasOwn(body, "promoCode"),
     existingOrder,
     items,
   });
@@ -415,7 +470,12 @@ const removeOrderedItemsFromCart = async (userId, orderItems = []) => {
 
 const getOrders = async (_req, res) => {
   try {
-    const query = isAdminRequest(_req) ? {} : { user: _req.userId };
+    const includeArchived = isAdminRequest(_req) && parseBooleanFlag(_req.query?.includeArchived);
+    const query = isAdminRequest(_req)
+      ? includeArchived
+        ? {}
+        : withActiveOrderFilter()
+      : withActiveOrderFilter({ user: _req.userId });
     const orders = await populateOrderQuery(
       Order.find(query).sort({ createdAt: -1 })
     );
@@ -434,8 +494,8 @@ const getOrderById = async (req, res) => {
     }
 
     const query = isAdminRequest(req)
-      ? { _id: req.params.id }
-      : { _id: req.params.id, user: req.userId };
+      ? withActiveOrderFilter({ _id: req.params.id })
+      : withActiveOrderFilter({ _id: req.params.id, user: req.userId });
     const order = await populateOrderQuery(Order.findOne(query));
     if (!order) {
       return res.status(404).json({ message: "Order not found" });
@@ -456,8 +516,8 @@ const getOrderByOrderId = async (req, res) => {
     }
 
     const query = isAdminRequest(req)
-      ? { orderId }
-      : { orderId, user: req.userId };
+      ? withActiveOrderFilter({ orderId })
+      : withActiveOrderFilter({ orderId, user: req.userId });
     const order = await populateOrderQuery(Order.findOne(query));
     if (!order) {
       return res.status(404).json({ message: "Order not found" });
@@ -478,8 +538,8 @@ const getOrderStatusByOrderId = async (req, res) => {
     }
 
     const query = isAdminRequest(req)
-      ? { orderId }
-      : { orderId, user: req.userId };
+      ? withActiveOrderFilter({ orderId })
+      : withActiveOrderFilter({ orderId, user: req.userId });
     const order = await Order.findOne(query).select(
       "orderId orderStatus statusHistory updatedAt createdAt"
     );
@@ -497,10 +557,20 @@ const getOrderStatusByOrderId = async (req, res) => {
 
 const createOrder = async (req, res) => {
   try {
+    const {
+      userId: orderUserId,
+      user: orderUser,
+      error: orderUserError,
+      status: orderUserStatus,
+    } = await resolveRequestedOrderUser(req, req.body);
+    if (orderUserError) {
+      return res.status(orderUserStatus || 400).json({ message: orderUserError });
+    }
+
     const { payload, error } = await buildOrderPayload(
       req.body,
       null,
-      req.userId
+      orderUserId
     );
     if (error) {
       return res.status(400).json({ message: error });
@@ -508,7 +578,7 @@ const createOrder = async (req, res) => {
 
     const order = await Order.create({
       ...payload,
-      user: req.userId,
+      user: orderUserId,
     });
     await order.populate([
       { path: "user", select: "firstName lastName email phoneNumber role" },
@@ -521,7 +591,7 @@ const createOrder = async (req, res) => {
     ]);
 
     try {
-      await removeOrderedItemsFromCart(req.userId, payload.orderItems);
+      await removeOrderedItemsFromCart(orderUserId, payload.orderItems);
     } catch (cartCleanupError) {
       console.error(
         "Failed to clean up cart after order creation:",
@@ -529,12 +599,12 @@ const createOrder = async (req, res) => {
       );
     }
 
-    if (req.user?.email) {
+    if (orderUser?.email) {
       try {
         await sendEmail(
-          req.user.email,
+          orderUser.email,
           `Order placed: ${order.orderId}`,
-          orderPlacedSuccess({ user: req.user, order })
+          orderPlacedSuccess({ user: orderUser, order })
         );
       } catch (emailError) {
         console.error(
@@ -557,12 +627,24 @@ const updateOrder = async (req, res) => {
       return res.status(400).json({ message: "Invalid order id" });
     }
 
-    const order = await Order.findById(req.params.id).populate(
+    const order = await Order.findOne(withActiveOrderFilter({ _id: req.params.id })).populate(
       "user",
       "firstName lastName email phoneNumber role"
     );
     if (!order) {
       return res.status(404).json({ message: "Order not found" });
+    }
+
+    if (hasOwn(req.body, "promoCode")) {
+      return res.status(400).json({
+        message: "Promo code cannot be added, changed, or removed after the order is placed.",
+      });
+    }
+
+    if (hasOwn(req.body, "paymentMethod")) {
+      return res.status(400).json({
+        message: "Payment details cannot be changed after the order is placed.",
+      });
     }
 
     const previousStatus = order.orderStatus;
@@ -622,7 +704,7 @@ const updateOrderStatus = async (req, res) => {
       });
     }
 
-    const order = await Order.findById(req.params.id).populate(
+    const order = await Order.findOne(withActiveOrderFilter({ _id: req.params.id })).populate(
       "user",
       "firstName lastName email phoneNumber role"
     );
@@ -672,13 +754,20 @@ const deleteOrder = async (req, res) => {
       return res.status(400).json({ message: "Invalid order id" });
     }
 
-    const order = await Order.findById(req.params.id);
+    const order = await Order.findOne(withActiveOrderFilter({ _id: req.params.id }));
     if (!order) {
       return res.status(404).json({ message: "Order not found" });
     }
 
-    await order.deleteOne();
-    return res.status(200).json({ message: "Order deleted" });
+    order.isDeleted = true;
+    order.deletedAt = new Date();
+    order.deletedBy = req.userId;
+    await order.save();
+
+    return res.status(200).json({
+      message: "Order archived successfully.",
+      order,
+    });
   } catch (error) {
     console.error("Failed to delete order:", error);
     return res.status(500).json({ message: "Failed to delete order" });

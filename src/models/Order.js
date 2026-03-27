@@ -217,6 +217,20 @@ const orderSchema = new mongoose.Schema(
       default: "COD",
       required: true,
     },
+    isDeleted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
+    deletedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
     statusHistory: {
       type: [statusHistorySchema],
       default: [],
