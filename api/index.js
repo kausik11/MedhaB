@@ -2,8 +2,7 @@ const app = require("../app");
 const connectDB = require("../src/config/db");
 
 const allowedOrigins = [
-  "https://savemedha.com",
-  "https://savemedha-admin.vercel.app",
+   "https://medha-a.vercel.app"
 ];
 
 const applyCorsHeaders = (req, res) => {

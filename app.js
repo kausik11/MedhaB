@@ -36,6 +36,7 @@ const allowedOrigins = [
   "http://127.0.0.1:5174",
   "http://localhost:4173",
   "http://127.0.0.1:4173",
+  "https://medha-a.vercel.app"
 ];
 
 app.use(
