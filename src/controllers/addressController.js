@@ -1,4 +1,6 @@
+const mongoose = require("mongoose");
 const Address = require("../models/Address");
+const User = require("../models/User");
 const { ADMIN_PANEL_ROLES } = require("../constants/userRoles");
 
 const REQUIRED_FIELDS = [
@@ -32,6 +34,50 @@ const getMissingRequiredFields = (payload) =>
   REQUIRED_FIELDS.filter((field) => !payload[field]);
 
 const isAdminRequest = (req) => ADMIN_PANEL_ROLES.includes(req.userRole);
+const isValidObjectId = (value) => mongoose.Types.ObjectId.isValid(value);
+
+const resolveRequestedAddressUser = async (req, body = {}, fallbackUserId) => {
+  const requestedUserId = `${body.userId || body.user || fallbackUserId || ""}`.trim();
+
+  if (!requestedUserId) {
+    return {
+      userId: req.userId,
+    };
+  }
+
+  if (!isAdminRequest(req)) {
+    if (requestedUserId === `${req.userId}`) {
+      return {
+        userId: req.userId,
+      };
+    }
+
+    return {
+      status: 403,
+      error:
+        "Only administrator and super admin users can assign addresses for another user.",
+    };
+  }
+
+  if (!isValidObjectId(requestedUserId)) {
+    return {
+      status: 400,
+      error: "userId must be a valid user id.",
+    };
+  }
+
+  const targetUser = await User.findById(requestedUserId);
+  if (!targetUser) {
+    return {
+      status: 404,
+      error: "Selected user not found.",
+    };
+  }
+
+  return {
+    userId: `${targetUser._id}`,
+  };
+};
 
 const getAddresses = async (req, res) => {
   try {
@@ -65,6 +111,17 @@ const getAddressById = async (req, res) => {
 
 const createAddress = async (req, res) => {
   try {
+    const {
+      userId: addressUserId,
+      error: addressUserError,
+      status: addressUserStatus,
+    } = await resolveRequestedAddressUser(req, req.body);
+    if (addressUserError) {
+      return res
+        .status(addressUserStatus || 400)
+        .json({ message: addressUserError });
+    }
+
     const payload = buildAddressPayload(req.body);
     const missingFields = getMissingRequiredFields(payload);
 
@@ -76,7 +133,7 @@ const createAddress = async (req, res) => {
 
     const address = await Address.create({
       ...payload,
-      user: req.userId,
+      user: addressUserId,
     });
 
     return res.status(201).json(address);
@@ -97,6 +154,17 @@ const updateAddress = async (req, res) => {
       return res.status(404).json({ message: "Address not found" });
     }
 
+    const {
+      userId: addressUserId,
+      error: addressUserError,
+      status: addressUserStatus,
+    } = await resolveRequestedAddressUser(req, req.body, address.user);
+    if (addressUserError) {
+      return res
+        .status(addressUserStatus || 400)
+        .json({ message: addressUserError });
+    }
+
     const payload = buildAddressPayload({
       ...address.toObject(),
       ...req.body,
@@ -110,6 +178,7 @@ const updateAddress = async (req, res) => {
     }
 
     Object.assign(address, payload);
+    address.user = addressUserId;
     await address.save();
 
     return res.status(200).json(address);
