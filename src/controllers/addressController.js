@@ -81,7 +81,10 @@ const resolveRequestedAddressUser = async (req, body = {}, fallbackUserId) => {
 
 const getAddresses = async (req, res) => {
   try {
-    const query = isAdminRequest(req) ? {} : { user: req.userId };
+    const shouldScopeToCurrentUser =
+      req.query.scope === "me" || req.query.mine === "true";
+    const query =
+      shouldScopeToCurrentUser || !isAdminRequest(req) ? { user: req.userId } : {};
     const addresses = await Address.find(query).sort({ createdAt: -1 });
 
     return res.status(200).json(addresses);

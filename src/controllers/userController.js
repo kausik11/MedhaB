@@ -31,6 +31,9 @@ const hashValue = (value) =>
   crypto.createHash("sha256").update(String(value)).digest("hex");
 
 const normalizeEmail = (email) => String(email || "").trim().toLowerCase();
+const trimString = (value) => String(value || "").trim();
+const hasOwn = (source, key) =>
+  Object.prototype.hasOwnProperty.call(source || {}, key);
 
 const generateEmailOtp = () =>
   String(Math.floor(100000 + Math.random() * 900000));
@@ -672,6 +675,100 @@ const getUserById = async (req, res) => {
   }
 };
 
+const getCurrentUser = async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ message: "Unauthorized user" });
+    }
+
+    return res.status(200).json(req.user.toJSON());
+  } catch (error) {
+    console.error("Failed to fetch current user:", error);
+    return res.status(500).json({ message: "Failed to fetch user" });
+  }
+};
+
+const applyUserUpdates = async (
+  user,
+  body = {},
+  { allowRole = false, allowDesignation = false, allowPassword = false } = {}
+) => {
+  if (allowPassword && body.password) {
+    user.password = body.password;
+  }
+
+  if (allowRole && hasOwn(body, "role")) {
+    if (!USER_ROLES.includes(body.role)) {
+      return { status: 400, error: "Invalid role" };
+    }
+
+    user.role = body.role;
+  }
+
+  const nextFirstName = hasOwn(body, "firstName")
+    ? trimString(body.firstName)
+    : user.firstName;
+  const nextLastName = hasOwn(body, "lastName")
+    ? trimString(body.lastName)
+    : user.lastName;
+  const nextPhoneNumber = hasOwn(body, "phoneNumber")
+    ? trimString(body.phoneNumber)
+    : user.phoneNumber;
+  const nextEmail = hasOwn(body, "email")
+    ? normalizeEmail(body.email)
+    : normalizeEmail(user.email);
+  const nextAddress = hasOwn(body, "address")
+    ? trimString(body.address)
+    : user.address || "";
+  const nextDesignation = allowDesignation
+    ? hasOwn(body, "designation")
+      ? trimString(body.designation)
+      : user.designation || ""
+    : user.designation;
+
+  if (!nextFirstName || !nextLastName || !nextPhoneNumber || !nextEmail) {
+    return {
+      status: 400,
+      error: "First name, last name, phone number and email are required",
+    };
+  }
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nextEmail)) {
+    return {
+      status: 400,
+      error: "Valid email is required",
+    };
+  }
+
+  const duplicateUser = await User.findOne({
+    email: nextEmail,
+    _id: { $ne: user._id },
+  });
+  if (duplicateUser) {
+    return {
+      status: 409,
+      error: "Email already registered",
+    };
+  }
+
+  const previousEmail = normalizeEmail(user.email);
+  user.firstName = nextFirstName;
+  user.lastName = nextLastName;
+  user.phoneNumber = nextPhoneNumber;
+  user.email = nextEmail;
+  user.address = nextAddress;
+
+  if (allowDesignation) {
+    user.designation = nextDesignation;
+  }
+
+  if (nextEmail !== previousEmail) {
+    user.isVerifiedEmail = false;
+  }
+
+  return { user };
+};
+
 const updateUser = async (req, res) => {
   try {
     const { id } = req.params;
@@ -695,24 +792,13 @@ const updateUser = async (req, res) => {
       user.password = password;
     }
 
-    if (req.body.role) {
-      if(!USER_ROLES.includes(req.body.role)){
-        return res.status(400).json({ message: "Invalid role" });
-      }
-      user.role = req.body.role;
-    }
-
-    const previousEmail = normalizeEmail(user.email);
-
-    user.firstName = req.body.firstName || user.firstName;
-    user.lastName = req.body.lastName || user.lastName;
-    user.phoneNumber = req.body.phoneNumber || user.phoneNumber;
-    user.email = normalizeEmail(req.body.email) || user.email;
-    user.address = req.body.address || user.address;
-    user.designation = req.body.designation || user.designation;
-
-    if (normalizeEmail(user.email) !== previousEmail) {
-      user.isVerifiedEmail = false;
+    const { error, status } = await applyUserUpdates(user, req.body, {
+      allowRole: true,
+      allowDesignation: true,
+      allowPassword: true,
+    });
+    if (error) {
+      return res.status(status || 400).json({ message: error });
     }
 
     await user.save();
@@ -720,6 +806,63 @@ const updateUser = async (req, res) => {
     return res.status(200).json(safeUser);
   } catch (error) {
     console.error("Failed to update user:", error);
+    return res.status(500).json({ message: "Failed to update user" });
+  }
+};
+
+const updateCurrentUser = async (req, res) => {
+  try {
+    const user = await User.findById(req.userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (req.file) {
+      if (user.userImagePublicId) {
+        await cloudinary.uploader.destroy(user.userImagePublicId).catch(() => {});
+      }
+
+      const uploaded = await uploadUserImage(req.file);
+      user.userImage = uploaded.imageUrl;
+      user.userImagePublicId = uploaded.imagePublicId;
+    }
+
+    if (req.body.password) {
+      const currentPassword = String(req.body.currentPassword || "");
+
+      if (!currentPassword) {
+        return res.status(400).json({
+          message: "Current password is required to change password",
+        });
+      }
+
+      const isCurrentPasswordValid = await user.comparePassword(currentPassword);
+      if (!isCurrentPasswordValid) {
+        return res.status(401).json({ message: "Current password is incorrect" });
+      }
+
+      if (String(req.body.password).length < 6) {
+        return res.status(400).json({
+          message: "Password must be at least 6 characters long",
+        });
+      }
+
+      user.password = req.body.password;
+    }
+
+    const { error, status } = await applyUserUpdates(user, req.body, {
+      allowRole: false,
+      allowDesignation: false,
+      allowPassword: false,
+    });
+    if (error) {
+      return res.status(status || 400).json({ message: error });
+    }
+
+    await user.save();
+    return res.status(200).json(user.toJSON());
+  } catch (error) {
+    console.error("Failed to update current user:", error);
     return res.status(500).json({ message: "Failed to update user" });
   }
 };
@@ -738,6 +881,8 @@ module.exports = {
   loginWithOtp,
   registerWithOtp,
   getUsers,
+  getCurrentUser,
   getUserById,
+  updateCurrentUser,
   updateUser,
 };
