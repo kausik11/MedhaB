@@ -17,6 +17,7 @@ const {
   getCurrentUser,
   getUserById,
   updateCurrentUser,
+  updateCurrentUserLocation,
   updateUser,
 } = require("../controllers/userController");
 const adminMiddleware = require("../middlewares/adminMiddleware");
@@ -39,6 +40,7 @@ router.post("/admin-login", loginAdminUser);
 // router.post("/otp-register", registerWithOtp);
 router.get("/me", authMiddleware, getCurrentUser);
 router.put("/me", authMiddleware, upload.single("userImage"), updateCurrentUser);
+router.put("/me/location", authMiddleware, updateCurrentUserLocation);
 router.get("/", adminMiddleware, getUsers);
 router.get("/:id", adminMiddleware, getUserById);
 router.put("/:id", adminMiddleware, upload.single("userImage"), updateUser);

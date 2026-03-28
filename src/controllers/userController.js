@@ -34,6 +34,10 @@ const normalizeEmail = (email) => String(email || "").trim().toLowerCase();
 const trimString = (value) => String(value || "").trim();
 const hasOwn = (source, key) =>
   Object.prototype.hasOwnProperty.call(source || {}, key);
+const toFiniteNumber = (value) => {
+  const nextNumber = Number(value);
+  return Number.isFinite(nextNumber) ? nextNumber : null;
+};
 
 const generateEmailOtp = () =>
   String(Math.floor(100000 + Math.random() * 900000));
@@ -121,6 +125,44 @@ const uploadUserImage = async (file) => {
   return {
     imageUrl: uploadResult.secure_url,
     imagePublicId: uploadResult.public_id,
+  };
+};
+
+const buildDeliveryLocationPayload = (source = {}) => {
+  const city = trimString(source.city);
+  const pincode = trimString(source.pincode);
+  const state = trimString(source.state);
+  const country = trimString(source.country);
+  const resolvedAddress = trimString(source.resolvedAddress);
+  const latitude = toFiniteNumber(source.latitude);
+  const longitude = toFiniteNumber(source.longitude);
+
+  if (
+    !city ||
+    !pincode ||
+    !state ||
+    !country ||
+    !resolvedAddress ||
+    latitude === null ||
+    longitude === null
+  ) {
+    return {
+      error:
+        "city, pincode, state, country, latitude, longitude and resolvedAddress are required",
+      status: 400,
+    };
+  }
+
+  return {
+    deliveryLocation: {
+      city,
+      pincode,
+      state,
+      country,
+      latitude,
+      longitude,
+      resolvedAddress,
+    },
   };
 };
 
@@ -867,6 +909,31 @@ const updateCurrentUser = async (req, res) => {
   }
 };
 
+const updateCurrentUserLocation = async (req, res) => {
+  try {
+    const user = await User.findById(req.userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const { deliveryLocation, error, status } = buildDeliveryLocationPayload(
+      req.body
+    );
+
+    if (error) {
+      return res.status(status || 400).json({ message: error });
+    }
+
+    user.deliveryLocation = deliveryLocation;
+    await user.save();
+
+    return res.status(200).json(user.toJSON());
+  } catch (error) {
+    console.error("Failed to update current user location:", error);
+    return res.status(500).json({ message: "Failed to update user location" });
+  }
+};
+
 module.exports = {
   sendRegistrationEmailOtp,
   verifyRegistrationEmailOtp,
@@ -884,5 +951,6 @@ module.exports = {
   getCurrentUser,
   getUserById,
   updateCurrentUser,
+  updateCurrentUserLocation,
   updateUser,
 };

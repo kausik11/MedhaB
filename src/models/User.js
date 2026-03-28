@@ -2,6 +2,19 @@ const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 const { USER_ROLES } = require("../constants/userRoles");
 
+const deliveryLocationSchema = new mongoose.Schema(
+  {
+    city: { type: String, trim: true, required: true },
+    pincode: { type: String, trim: true, required: true },
+    state: { type: String, trim: true, required: true },
+    country: { type: String, trim: true, required: true },
+    latitude: { type: Number, required: true },
+    longitude: { type: Number, required: true },
+    resolvedAddress: { type: String, trim: true, required: true },
+  },
+  { _id: false }
+);
+
 const userSchema = new mongoose.Schema(
   {
     firstName: { type: String, required: true, trim: true },
@@ -12,6 +25,7 @@ const userSchema = new mongoose.Schema(
     designation: { type: String, trim: true },
     userImage: { type: String, trim: true },
     userImagePublicId: { type: String, trim: true },
+    deliveryLocation: { type: deliveryLocationSchema, required: false },
     password: { type: String, required: true, minlength: 6 },
     tokenVersion : { type: Number, default: 0 },
     isVerifiedEmail: { type: Boolean, default: false },
