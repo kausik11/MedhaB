@@ -553,6 +553,16 @@ const buildProductPayload = async (body = {}, { existingProduct } = {}) => {
     }
   }
 
+  if (hasOwn(body, "mostBought") || hasOwn(body, "most_bought")) {
+    payload.mostBought = parseBoolean(body.mostBought ?? body.most_bought);
+
+    if (payload.mostBought === undefined) {
+      return {
+        error: "mostBought must be true or false.",
+      };
+    }
+  }
+
   if (
     hasOwn(body, "publicationStatus") ||
     hasOwn(body, "status") ||
@@ -639,6 +649,10 @@ const buildProductPayload = async (body = {}, { existingProduct } = {}) => {
 
   if (payload.nonVegetarianSupplement === undefined && !existingProduct) {
     payload.nonVegetarianSupplement = false;
+  }
+
+  if (payload.mostBought === undefined && !existingProduct) {
+    payload.mostBought = false;
   }
 
   if (payload.publicationStatus === undefined && !existingProduct) {
