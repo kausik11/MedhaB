@@ -96,6 +96,15 @@ const parseQuantity = (value) => {
   return Number(match[0]);
 };
 
+const parsePositiveInteger = (value) => {
+  if (value == null || value === "") return undefined;
+  const parsedValue = Number.parseInt(`${value}`, 10);
+  if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
+    return NaN;
+  }
+  return parsedValue;
+};
+
 const getEffectivePrice = ({ actualPrice, discountPrice }) => {
   if (typeof discountPrice === "number" && !Number.isNaN(discountPrice)) {
     return discountPrice;
@@ -702,6 +711,20 @@ const assignProductFields = (product, payload) => {
   });
 };
 
+const serializeMostBoughtProductCard = (product) => ({
+  _id: product._id,
+  title: product.title,
+  actualPrice: product.actualPrice,
+  discountPercentage: product.discountPercentage,
+  discountPrice: product.discountPrice,
+  mostBought: product.mostBought,
+  images: Array.isArray(product.images)
+    ? product.images.map((image) => ({
+        imageUrl: image?.imageUrl || "",
+      }))
+    : [],
+});
+
 const getProducts = async (req, res) => {
   try {
     const { type, category, tag, q, publicationStatus, status, selectedQuantity } = req.query;
@@ -762,6 +785,32 @@ const getProducts = async (req, res) => {
   } catch (error) {
     console.error("Failed to fetch products:", error);
     res.status(500).json({ message: "Failed to fetch products" });
+  }
+};
+
+const getMostBoughtProducts = async (req, res) => {
+  try {
+    const parsedLimit = parsePositiveInteger(req.query?.limit);
+
+    if (req.query?.limit !== undefined && Number.isNaN(parsedLimit)) {
+      return res.status(400).json({ message: "limit must be a positive integer." });
+    }
+
+    const limit = Math.min(parsedLimit ?? 12, 20);
+    const products = await Product.find({
+      mostBought: true,
+      publicationStatus: "published",
+    })
+      .select("title actualPrice discountPercentage discountPrice mostBought images.imageUrl")
+      .slice("images", 1)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+
+    return res.status(200).json(products.map(serializeMostBoughtProductCard));
+  } catch (error) {
+    console.error("Failed to fetch most bought products:", error);
+    return res.status(500).json({ message: "Failed to fetch most bought products" });
   }
 };
 
@@ -934,6 +983,7 @@ const deleteProduct = async (req, res) => {
 
 module.exports = {
   getProducts,
+  getMostBoughtProducts,
   getProductById,
   getProductBySlug,
   createProduct,

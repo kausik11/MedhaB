@@ -2,6 +2,7 @@ const express = require("express");
 const multer = require("multer");
 const {
   getProducts,
+  getMostBoughtProducts,
   getProductById,
   getProductBySlug,
   createProduct,
@@ -16,6 +17,7 @@ const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 const productUploads = upload.fields([{ name: "images", maxCount: 5 }]);
 
+router.get("/most-bought", optionalAuthMiddleware, getMostBoughtProducts);
 router.get("/", optionalAuthMiddleware, getProducts);
 router.get("/slug/:slug", optionalAuthMiddleware, getProductBySlug);
 router.get("/:id", optionalAuthMiddleware, getProductById);
