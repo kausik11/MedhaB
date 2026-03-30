@@ -2,7 +2,8 @@ const app = require("../app");
 const connectDB = require("../src/config/db");
 
 const allowedOrigins = [
-   "https://medha-a.vercel.app"
+   "https://medha-a.vercel.app",
+   "https://www.medha.care"
 ];
 
 const applyCorsHeaders = (req, res) => {
