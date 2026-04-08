@@ -12,6 +12,7 @@ const orderPlacedSuccess = require("../utils/orderPlacedSuccess");
 const orderStatusUpdated = require("../utils/orderStatusUpdated");
 const {
   calculateVariantPricing,
+  getProductImagesForQuantity,
   isSupportedProductQuantity,
   parseProductQuantity,
 } = require("../utils/productPricing");
@@ -191,7 +192,7 @@ const getProductSnapshot = async (requestedItems = []) => {
       productDiscountAmount,
       finalPrice: Number((effectiveUnitPrice * quantity).toFixed(2)),
       pricePerCapsule: variantPricing.pricePerCapsule,
-      image: product.images?.[0]?.imageUrl || "",
+      image: getProductImagesForQuantity(product, selectedQuantity)?.[0]?.imageUrl || "",
       category: Array.isArray(product.category)
         ? product.category
             .map((category) => category?.name)

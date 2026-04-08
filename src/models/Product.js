@@ -16,6 +16,24 @@ const productImageSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const createQuantityImageField = () => ({
+  type: [productImageSchema],
+  default: [],
+  validate: {
+    validator: (value) => Array.isArray(value) && value.length <= 5,
+    message: "A product can have at most 5 images for each quantity.",
+  },
+});
+
+const quantityImagesSchema = new mongoose.Schema(
+  {
+    "60": createQuantityImageField(),
+    "90": createQuantityImageField(),
+    "120": createQuantityImageField(),
+  },
+  { _id: false }
+);
+
 const manufacturingDetailsSchema = new mongoose.Schema(
   {
     countryOfOrigin: {
@@ -214,6 +232,10 @@ const productSchema = new mongoose.Schema(
         validator: (value) => Array.isArray(value) && value.length <= 5,
         message: "A product can have at most 5 images.",
       },
+    },
+    quantityImages: {
+      type: quantityImagesSchema,
+      default: () => ({}),
     },
     category: {
       type: [

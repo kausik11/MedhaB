@@ -7,11 +7,19 @@ const { ADMIN_PANEL_ROLES } = require("../constants/userRoles");
 const { PRODUCT_PUBLICATION_STATUSES } = require("../models/Product");
 const {
   PRODUCT_QUANTITY_OPTIONS,
+  getProductImagesForQuantity,
+  syncLegacyImagesField,
+  toQuantityKey,
   withVariantPricing,
 } = require("../utils/productPricing");
 
 const PRODUCT_TYPES = ["vitamin", "enzyme", "booster"];
 const PRODUCT_QUANTITIES = PRODUCT_QUANTITY_OPTIONS;
+const CREATE_IMAGE_FIELD_BY_QUANTITY = {
+  60: "images60",
+  90: "images90",
+  120: "images120",
+};
 
 const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
 
@@ -210,6 +218,122 @@ const deleteImages = async (images = []) => {
       await cloudinary.uploader.destroy(image.imagePublicId);
     }
   }
+};
+
+const resolveRequestedImageQuantity = (value, fallbackQuantity) => {
+  const parsedQuantity = parseQuantity(value ?? fallbackQuantity);
+
+  if (parsedQuantity === undefined) {
+    return fallbackQuantity;
+  }
+
+  return parsedQuantity;
+};
+
+const getStoredImagesForQuantity = (product, quantity) => {
+  const quantityKey = toQuantityKey(quantity);
+  if (!quantityKey) {
+    return [];
+  }
+
+  const quantityImages = product?.quantityImages?.[quantityKey];
+  if (Array.isArray(quantityImages) && quantityImages.length) {
+    return quantityImages;
+  }
+
+  return product?.quantity === quantity ? product.images || [] : [];
+};
+
+const setImagesForQuantity = (product, quantity, images) => {
+  const quantityKey = toQuantityKey(quantity);
+  if (!quantityKey) {
+    return;
+  }
+
+  if (!product.quantityImages || typeof product.quantityImages !== "object") {
+    product.quantityImages = {};
+  }
+
+  product.quantityImages[quantityKey] = Array.isArray(images) ? images : [];
+  syncLegacyImagesField(product);
+};
+
+const validateImageFileCount = (files = [], message) => {
+  if (!Array.isArray(files) || files.length <= 5) {
+    return null;
+  }
+
+  return message;
+};
+
+const getNamedQuantityImageFiles = (req) => {
+  const quantityFileMap = {};
+
+  for (const quantity of PRODUCT_QUANTITIES) {
+    const fieldName = CREATE_IMAGE_FIELD_BY_QUANTITY[quantity];
+    const files = req.files?.[fieldName] || [];
+    const countError = validateImageFileCount(
+      files,
+      `You can upload at most 5 product images for ${quantity} capsules.`
+    );
+
+    if (countError) {
+      return { error: countError };
+    }
+
+    if (files.length > 0) {
+      quantityFileMap[quantity] = files;
+    }
+  }
+
+  return { quantityFileMap };
+};
+
+const getCreateImageUploads = async (req, fallbackQuantity) => {
+  const { quantityFileMap, error } = getNamedQuantityImageFiles(req);
+  if (error) {
+    return { error };
+  }
+
+  const quantityUploads = {};
+
+  for (const [quantity, files] of Object.entries(quantityFileMap)) {
+    quantityUploads[quantity] = await uploadImages(files, "medhaBotanics/products");
+  }
+
+  if (Object.keys(quantityUploads).length > 0) {
+    return { quantityUploads };
+  }
+
+  const legacyFiles = req.files?.images || [];
+  const legacyError = validateImageFileCount(
+    legacyFiles,
+    "You can upload at most 5 product images."
+  );
+
+  if (legacyError) {
+    return { error: legacyError };
+  }
+
+  const imageQuantity = resolveRequestedImageQuantity(
+    req.body?.imageQuantity,
+    fallbackQuantity
+  );
+
+  if (!PRODUCT_QUANTITIES.includes(imageQuantity)) {
+    return {
+      error: "imageQuantity must be one of 60, 90, or 120 capsules.",
+    };
+  }
+
+  return {
+    quantityUploads:
+      legacyFiles.length > 0
+        ? {
+            [imageQuantity]: await uploadImages(legacyFiles, "medhaBotanics/products"),
+          }
+        : {},
+  };
 };
 
 const toCategoryLookupValue = (value) => `${value}`.trim();
@@ -704,6 +828,8 @@ const assignProductFields = (product, payload) => {
     }
   });
 
+  syncLegacyImagesField(product);
+
   product.pricePerCapsule = calculatePricePerCapsule({
     actualPrice: product.actualPrice,
     discountPrice: product.discountPrice,
@@ -718,11 +844,9 @@ const serializeMostBoughtProductCard = (product) => ({
   discountPercentage: product.discountPercentage,
   discountPrice: product.discountPrice,
   mostBought: product.mostBought,
-  images: Array.isArray(product.images)
-    ? product.images.map((image) => ({
-        imageUrl: image?.imageUrl || "",
-      }))
-    : [],
+  images: getProductImagesForQuantity(product, product.quantity).map((image) => ({
+    imageUrl: image?.imageUrl || "",
+  })),
 });
 
 const getProducts = async (req, res) => {
@@ -863,16 +987,27 @@ const createProduct = async (req, res) => {
       return res.status(400).json({ message: requiredFieldError });
     }
 
-    const imageFiles = req.files?.images || [];
-    if (imageFiles.length > 5) {
-      return res.status(400).json({ message: "You can upload at most 5 product images." });
+    const { quantityUploads, error: imageUploadError } = await getCreateImageUploads(
+      req,
+      payload.quantity
+    );
+    if (imageUploadError) {
+      return res.status(400).json({ message: imageUploadError });
     }
 
-    const images = await uploadImages(imageFiles, "medhaBotanics/products");
     const product = new Product({
       ...payload,
-      images,
+      images: [],
     });
+
+    for (const quantity of PRODUCT_QUANTITIES) {
+      const images = quantityUploads?.[quantity];
+      if (Array.isArray(images) && images.length) {
+        setImagesForQuantity(product, quantity, images);
+      }
+    }
+
+    syncLegacyImagesField(product);
 
     assignProductFields(product, {});
     await product.save();
@@ -899,19 +1034,56 @@ const updateProduct = async (req, res) => {
 
     assignProductFields(product, payload);
 
+    const { quantityFileMap, error: namedUploadError } = getNamedQuantityImageFiles(req);
+    if (namedUploadError) {
+      return res.status(400).json({ message: namedUploadError });
+    }
+
+    const hasNamedUploads = Object.keys(quantityFileMap).length > 0;
     const imageFiles = req.files?.images || [];
     if (imageFiles.length > 5) {
       return res.status(400).json({ message: "You can upload at most 5 product images." });
     }
 
+    if (hasNamedUploads && imageFiles.length > 0) {
+      return res.status(400).json({
+        message: "Use either quantity-specific image fields or the legacy image field, not both.",
+      });
+    }
+
     const shouldClearImages = parseBoolean(req.body.clearImages);
-    if (imageFiles.length > 0) {
-      const uploadedImages = await uploadImages(imageFiles, "medhaBotanics/products");
-      await deleteImages(product.images);
-      product.images = uploadedImages;
-    } else if (shouldClearImages === true) {
-      await deleteImages(product.images);
-      product.images = [];
+    if (hasNamedUploads) {
+      for (const [quantityValue, files] of Object.entries(quantityFileMap)) {
+        const imageQuantity = Number(quantityValue);
+        const currentImages = getStoredImagesForQuantity(product, imageQuantity);
+        const uploadedImages = await uploadImages(files, "medhaBotanics/products");
+        await deleteImages(currentImages);
+        setImagesForQuantity(product, imageQuantity, uploadedImages);
+      }
+    } else if (imageFiles.length > 0 || shouldClearImages === true) {
+      const imageQuantity = resolveRequestedImageQuantity(
+        req.body?.imageQuantity,
+        payload.quantity ?? product.quantity
+      );
+
+      if (!PRODUCT_QUANTITIES.includes(imageQuantity)) {
+        return res.status(400).json({
+          message: "imageQuantity must be one of 60, 90, or 120 capsules.",
+        });
+      }
+
+      const currentImages = getStoredImagesForQuantity(product, imageQuantity);
+
+      if (imageFiles.length > 0) {
+        const uploadedImages = await uploadImages(imageFiles, "medhaBotanics/products");
+        await deleteImages(currentImages);
+        setImagesForQuantity(product, imageQuantity, uploadedImages);
+      } else if (shouldClearImages === true) {
+        await deleteImages(currentImages);
+        setImagesForQuantity(product, imageQuantity, []);
+      }
+    } else {
+      syncLegacyImagesField(product);
     }
 
     product.pricePerCapsule = calculatePricePerCapsule({

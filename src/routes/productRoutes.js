@@ -15,7 +15,12 @@ const optionalAuthMiddleware = require("../middlewares/optionalAuthMiddleware");
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
-const productUploads = upload.fields([{ name: "images", maxCount: 5 }]);
+const productUploads = upload.fields([
+  { name: "images", maxCount: 4 },
+  { name: "images60", maxCount: 4 },
+  { name: "images90", maxCount: 4 },
+  { name: "images120", maxCount: 4 },
+]);
 
 router.get("/most-bought", optionalAuthMiddleware, getMostBoughtProducts);
 router.get("/", optionalAuthMiddleware, getProducts);

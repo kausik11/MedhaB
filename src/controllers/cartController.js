@@ -5,6 +5,7 @@ const {
   calculateVariantPricing,
   isSupportedProductQuantity,
   parseProductQuantity,
+  withVariantPricing,
 } = require("../utils/productPricing");
 
 const isValidObjectId = (value) => mongoose.Types.ObjectId.isValid(value);
@@ -69,6 +70,7 @@ const serializeCart = (cart, userId) => {
       ? item.selectedQuantity
       : parseSelectedQuantity(undefined, product?.quantity);
     const variantPricing = calculateVariantPricing(product, selectedQuantity);
+    const productWithVariantPricing = withVariantPricing(product, selectedQuantity);
     const unitPrice = variantPricing.actualPrice;
     const discountedUnitPrice = variantPricing.currentPrice;
     const lineSubtotal = Number((unitPrice * quantity).toFixed(2));
@@ -80,7 +82,7 @@ const serializeCart = (cart, userId) => {
     totalQuantity += quantity;
 
     return {
-      product,
+      product: productWithVariantPricing,
       quantity,
       selectedQuantity,
       pricePerCapsule: variantPricing.pricePerCapsule,
