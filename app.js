@@ -4,6 +4,7 @@ const app = express();
 const morgan = require("morgan");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
+const { corsOptions } = require("./src/config/cors");
 const testimonialRoutes = require("./src/routes/testimonialRoutes");
 const blogRoutes = require("./src/routes/blogRoutes");
 const blogCategoryRoutes = require("./src/routes/blogCategoryRoutes");
@@ -29,28 +30,7 @@ const PreferenceEvent = require("./src/models/PreferenceEvent");
 // Honor reverse proxies (e.g. Vercel) so req.ip contains the real client IP
 app.set("trust proxy", true);
 
-const allowedOrigins = [
-  "http://localhost:5173",
-  "http://localhost:5174",
-  "http://127.0.0.1:5173",
-  "http://127.0.0.1:5174",
-  "http://localhost:4173",
-  "http://127.0.0.1:4173",
-  "https://medha-a.vercel.app",
-  "https://www.medha.care",
-];
-
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) return callback(null, true);
-      return callback(new Error("Not allowed by CORS"));
-    },
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    credentials: true,
-  })
-);
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(cookieParser());
 app.use(morgan("dev"));

@@ -1,29 +1,6 @@
 const app = require("../app");
 const connectDB = require("../src/config/db");
-
-const allowedOrigins = [
-   "https://medha-a.vercel.app",
-   "https://www.medha.care"
-];
-
-const applyCorsHeaders = (req, res) => {
-  const origin = req.headers.origin;
-
-  if (origin && allowedOrigins.includes(origin)) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-    res.setHeader("Vary", "Origin");
-  }
-
-  res.setHeader(
-    "Access-Control-Allow-Methods",
-    "GET,POST,PUT,DELETE,PATCH,OPTIONS"
-  );
-  res.setHeader(
-    "Access-Control-Allow-Headers",
-    req.headers["access-control-request-headers"] || "Content-Type, Authorization"
-  );
-  res.setHeader("Access-Control-Allow-Credentials", "true");
-};
+const { applyCorsHeaders } = require("../src/config/cors");
 
 module.exports = async (req, res) => {
   try {
