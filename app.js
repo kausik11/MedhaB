@@ -19,6 +19,7 @@ const analyticsRoutes = require("./src/routes/analyticsRoutes");
 const patientSuccessRoutes = require("./src/routes/patientSuccessRoutes");
 const productRoutes = require("./src/routes/productRoutes");
 const productCategoryRoutes = require("./src/routes/productCategoryRoutes");
+const packageRoutes = require("./src/routes/packageRoutes");
 const offerRoutes = require("./src/routes/offerRoutes");
 const orderRoutes = require("./src/routes/orderRoutes");
 const cartRoutes = require("./src/routes/cartRoutes");
@@ -168,6 +169,8 @@ app.use("/api/product-categories", productCategoryRoutes);
 app.use("/api/offers", offerRoutes);
 // Products: public read, protected write
 app.use("/api/products", productRoutes);
+// Product packages: public read, protected write
+app.use("/api/packages", packageRoutes);
 // Orders
 app.use("/api/orders", orderRoutes);
 // Authenticated user cart
