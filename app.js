@@ -23,6 +23,7 @@ const packageRoutes = require("./src/routes/packageRoutes");
 const offerRoutes = require("./src/routes/offerRoutes");
 const orderRoutes = require("./src/routes/orderRoutes");
 const cartRoutes = require("./src/routes/cartRoutes");
+const favoriteRoutes = require("./src/routes/favoriteRoutes");
 const pricingRoutes = require("./src/routes/pricingRoutes");
 const authMiddleware = require("./src/middlewares/authMiddleware");
 const globalErrorHandler = require("./src/middlewares/globalErrorHandler");
@@ -175,6 +176,8 @@ app.use("/api/packages", packageRoutes);
 app.use("/api/orders", orderRoutes);
 // Authenticated user cart
 app.use("/api/cart", cartRoutes);
+// Authenticated user favourites
+app.use("/api/favorites", favoriteRoutes);
 // Authenticated user delivery addresses
 app.use("/api/addresses", addressRoutes);
 
