@@ -164,6 +164,23 @@ const productSchema = new mongoose.Schema(
       min: 0,
       default: 0,
     },
+    star: {
+      type: Number,
+      min: 0,
+      max: 5,
+      default: 4.8,
+    },
+    reviewsCount: {
+      type: Number,
+      min: 0,
+      default: 245,
+      validate: {
+        validator(value) {
+          return Number.isInteger(value);
+        },
+        message: "Reviews count must be a whole number.",
+      },
+    },
     type: {
       type: String,
       required: true,

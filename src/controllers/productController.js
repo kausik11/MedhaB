@@ -530,6 +530,30 @@ const validatePriceFields = ({
   return null;
 };
 
+const validateRatingFields = ({ star, reviewsCount }) => {
+  if (star !== undefined && Number.isNaN(star)) {
+    return "star must be a valid number.";
+  }
+
+  if (typeof star === "number" && (star < 0 || star > 5)) {
+    return "star must be between 0 and 5.";
+  }
+
+  if (reviewsCount !== undefined && Number.isNaN(reviewsCount)) {
+    return "reviewsCount must be a valid number.";
+  }
+
+  if (typeof reviewsCount === "number" && reviewsCount < 0) {
+    return "reviewsCount cannot be negative.";
+  }
+
+  if (typeof reviewsCount === "number" && !Number.isInteger(reviewsCount)) {
+    return "reviewsCount must be a whole number.";
+  }
+
+  return null;
+};
+
 const handlePersistenceError = (res, error, fallbackMessage) => {
   if (error?.code === 11000) {
     return res.status(400).json({ message: "slug must be unique." });
@@ -646,6 +670,16 @@ const buildProductPayload = async (body = {}, { existingProduct } = {}) => {
     payload.discountPrice = parseNumber(body.discountPrice ?? body.DiscountPrice);
   }
 
+  if (hasOwn(body, "star") || hasOwn(body, "rating")) {
+    payload.star = parseNumber(body.star ?? body.rating);
+  }
+
+  if (hasOwn(body, "reviewsCount") || hasOwn(body, "reviewCount") || hasOwn(body, "reviews")) {
+    payload.reviewsCount = parseNumber(
+      body.reviewsCount ?? body.reviewCount ?? body.reviews
+    );
+  }
+
   if (hasOwn(body, "category")) {
     const { categoryIds, error } = await resolveProductCategories(body.category);
     if (error) {
@@ -746,6 +780,15 @@ const buildProductPayload = async (body = {}, { existingProduct } = {}) => {
     return { error: priceError };
   }
 
+  const ratingError = validateRatingFields({
+    star: payload.star,
+    reviewsCount: payload.reviewsCount,
+  });
+
+  if (ratingError) {
+    return { error: ratingError };
+  }
+
   const shouldSyncPricing =
     !existingProduct ||
     payload.actualPrice !== undefined ||
@@ -790,6 +833,14 @@ const buildProductPayload = async (body = {}, { existingProduct } = {}) => {
 
   if (payload.publicationStatus === undefined && !existingProduct) {
     payload.publicationStatus = "published";
+  }
+
+  if (payload.star === undefined && !existingProduct) {
+    payload.star = 4.8;
+  }
+
+  if (payload.reviewsCount === undefined && !existingProduct) {
+    payload.reviewsCount = 245;
   }
 
   return { payload };
@@ -843,6 +894,8 @@ const serializeMostBoughtProductCard = (product) => ({
   actualPrice: product.actualPrice,
   discountPercentage: product.discountPercentage,
   discountPrice: product.discountPrice,
+  star: product.star,
+  reviewsCount: product.reviewsCount,
   mostBought: product.mostBought,
   images: getProductImagesForQuantity(product, product.quantity).map((image) => ({
     imageUrl: image?.imageUrl || "",
@@ -925,7 +978,7 @@ const getMostBoughtProducts = async (req, res) => {
       mostBought: true,
       publicationStatus: "published",
     })
-      .select("title actualPrice discountPercentage discountPrice mostBought images.imageUrl")
+      .select("title actualPrice discountPercentage discountPrice star reviewsCount mostBought images.imageUrl")
       .slice("images", 1)
       .sort({ createdAt: -1 })
       .limit(limit)
