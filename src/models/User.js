@@ -19,7 +19,7 @@ const userSchema = new mongoose.Schema(
   {
     firstName: { type: String, required: true, trim: true },
     lastName: { type: String, required: true, trim: true },
-    phoneNumber: { type: String, required: true, trim: true },
+    phoneNumber: { type: String, trim: true, default: "" },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     address: { type: String, trim: true },
     designation: { type: String, trim: true },
@@ -29,6 +29,12 @@ const userSchema = new mongoose.Schema(
     password: { type: String, required: true, minlength: 6 },
     tokenVersion : { type: Number, default: 0 },
     isVerifiedEmail: { type: Boolean, default: false },
+    firebaseUid: { type: String, trim: true, sparse: true, unique: true },
+    authProvider: {
+      type: String,
+      enum: ["password", "google", "phone"],
+      default: "password",
+    },
     role: { type: String, required: true, enum: USER_ROLES, default: "normal" },
   },
   { timestamps: true }

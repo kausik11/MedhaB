@@ -10,7 +10,7 @@ function normalizePhoneNumber(phoneNumber) {
   return digits.slice(-10);
 }
 
-async function verifyFirebasePhoneIdToken(idToken) {
+async function lookupFirebaseAccount(idToken) {
   if (!FIREBASE_WEB_API_KEY) {
     throw new Error("FIREBASE_WEB_API_KEY not configured");
   }
@@ -31,10 +31,14 @@ async function verifyFirebasePhoneIdToken(idToken) {
   const data = await response.json().catch(() => null);
 
   if (!response.ok || !Array.isArray(data?.users) || data.users.length === 0) {
-    throw new Error("Invalid or expired OTP session");
+    throw new Error("Invalid or expired Firebase session");
   }
 
-  const account = data.users[0];
+  return data.users[0];
+}
+
+async function verifyFirebasePhoneIdToken(idToken) {
+  const account = await lookupFirebaseAccount(idToken);
 
   if (!account.phoneNumber) {
     throw new Error("Phone number not found in OTP session");
@@ -48,6 +52,7 @@ async function verifyFirebasePhoneIdToken(idToken) {
 }
 
 module.exports = {
+  lookupFirebaseAccount,
   normalizePhoneNumber,
   verifyFirebasePhoneIdToken,
 };

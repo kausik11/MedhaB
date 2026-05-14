@@ -12,7 +12,10 @@ const {
   getEmailVerificationChallenge,
   clearEmailVerificationChallenge,
 } = require("../utils/emailVerificationStore");
-const { verifyFirebasePhoneIdToken } = require("../utils/firebasePhoneAuth");
+const {
+  lookupFirebaseAccount,
+  verifyFirebasePhoneIdToken,
+} = require("../utils/firebasePhoneAuth");
 
 const { JWT_SECRET } = process.env;
 
@@ -612,6 +615,127 @@ const loginUser = async (req, res) => authenticateUser(req, res);
 const loginAdminUser = async (req, res) =>
   authenticateUser(req, res, { adminOnly: true });
 
+const splitDisplayName = (displayName = "", email = "") => {
+  const parts = String(displayName || "").trim().split(/\s+/).filter(Boolean);
+
+  if (parts.length > 1) {
+    return {
+      firstName: parts.slice(0, -1).join(" "),
+      lastName: parts.at(-1),
+    };
+  }
+
+  if (parts.length === 1) {
+    return {
+      firstName: parts[0],
+      lastName: "Customer",
+    };
+  }
+
+  const emailPrefix = String(email || "").split("@")[0] || "Google";
+  return {
+    firstName: emailPrefix,
+    lastName: "Customer",
+  };
+};
+
+const loginWithGoogle = async (req, res) => {
+  try {
+    ensureJwtConfigured();
+
+    const { idToken } = req.body;
+
+    if (!idToken) {
+      return res.status(400).json({ message: "Google session token is required" });
+    }
+
+    const account = await lookupFirebaseAccount(idToken);
+    const email = normalizeEmail(account.email);
+
+    if (!email) {
+      return res.status(400).json({ message: "Google account email is required" });
+    }
+
+    const providerUserInfo = Array.isArray(account.providerUserInfo)
+      ? account.providerUserInfo
+      : [];
+    const hasGoogleProvider = providerUserInfo.some(
+      (provider) => provider?.providerId === "google.com"
+    );
+
+    if (!hasGoogleProvider) {
+      return res.status(400).json({ message: "Firebase token is not a Google login" });
+    }
+
+    const displayName =
+      account.displayName ||
+      providerUserInfo.find((provider) => provider?.providerId === "google.com")
+        ?.displayName ||
+      "";
+    const photoUrl =
+      account.photoUrl ||
+      providerUserInfo.find((provider) => provider?.providerId === "google.com")
+        ?.photoUrl ||
+      "";
+    const firebaseUid = account.localId;
+
+    if (!firebaseUid) {
+      return res.status(400).json({ message: "Firebase user id is required" });
+    }
+
+    let user = await User.findOne({ firebaseUid });
+    let isNewUser = false;
+
+    if (!user) {
+      user = await User.findOne({ email });
+    }
+
+    if (user) {
+      user.firebaseUid = firebaseUid;
+      user.authProvider = user.authProvider === "password" ? "password" : "google";
+      user.isVerifiedEmail = account.emailVerified !== false;
+
+      if (!user.userImage && photoUrl) {
+        user.userImage = photoUrl;
+      }
+
+      await user.save();
+      return issueUserSession(res, user, 200, {
+        isNewUser,
+        needsProfileCompletion: !user.phoneNumber,
+      });
+    }
+
+    const { firstName, lastName } = splitDisplayName(displayName, email);
+    user = await User.create({
+      firstName,
+      lastName,
+      phoneNumber: "",
+      email,
+      address: "",
+      userImage: photoUrl,
+      password: crypto.randomBytes(24).toString("hex"),
+      firebaseUid,
+      authProvider: "google",
+      isVerifiedEmail: account.emailVerified !== false,
+      role: "normal",
+    });
+    isNewUser = true;
+
+    sendEmail(user.email, "Registration Success", registrationSuccess(user));
+
+    return issueUserSession(res, user, 201, {
+      isNewUser,
+      needsProfileCompletion: true,
+    });
+  } catch (error) {
+    console.error("Failed to login with Google:", error);
+    return res.status(500).json({
+      message: error.message || "Failed to login with Google",
+    });
+  }
+};
+
 const loginWithOtp = async (req, res) => {
   try {
     ensureJwtConfigured();
@@ -945,6 +1069,7 @@ module.exports = {
   registerUser,
   loginUser,
   loginAdminUser,
+  loginWithGoogle,
   loginWithOtp,
   registerWithOtp,
   getUsers,

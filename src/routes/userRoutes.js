@@ -11,6 +11,7 @@ const {
   registerUser,
   loginUser,
   loginAdminUser,
+  loginWithGoogle,
   loginWithOtp,
   registerWithOtp,
   getUsers,
@@ -35,6 +36,7 @@ router.post("/forgot-password/verify-otp", verifyForgotPasswordOtp);
 router.post("/forgot-password/reset-password", resetForgotPassword);
 router.post("/register", upload.single("userImage"), registerUser);
 router.post("/login", loginUser);
+router.post("/google-login", loginWithGoogle);
 router.post("/admin-login", loginAdminUser);
 // router.post("/otp-login", loginWithOtp);
 // router.post("/otp-register", registerWithOtp);
